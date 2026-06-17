@@ -188,16 +188,23 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
       name: "T-POSE",
       japaneseName: "Tのポーズ",
       description: "両うでをヨコにまっすぐ広げてね！",
-      checkMatch: (joints: any, height: number) => {
+      checkMatch: (joints: any, _height: number) => {
         if (!joints.lShoulder || !joints.rShoulder || !joints.lElbow || !joints.rElbow || !joints.lWrist || !joints.rWrist) return false;
         
         // Calculate arm straightness
         const lAngle = calculateAngle(joints.lShoulder, joints.lElbow, joints.lWrist);
         const rAngle = calculateAngle(joints.rShoulder, joints.rElbow, joints.rWrist);
 
-        // Check if wrists are horizontal relative to shoulders
-        const lHoriz = Math.abs(joints.lWrist.y - joints.lShoulder.y) < height * 0.09;
-        const rHoriz = Math.abs(joints.rWrist.y - joints.rShoulder.y) < height * 0.09;
+        // Use shoulder width as a dynamic reference to scale matching thresholds
+        const shoulderDist = Math.hypot(
+          joints.lShoulder.x - joints.rShoulder.x,
+          joints.lShoulder.y - joints.rShoulder.y
+        );
+        if (shoulderDist < 10) return false;
+
+        // Check if wrists are horizontal relative to shoulders (scaled dynamically)
+        const lHoriz = Math.abs(joints.lWrist.y - joints.lShoulder.y) < shoulderDist * 0.6;
+        const rHoriz = Math.abs(joints.rWrist.y - joints.rShoulder.y) < shoulderDist * 0.6;
 
         return lAngle > 158 && rAngle > 158 && lHoriz && rHoriz;
       },
@@ -240,15 +247,22 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
       name: "STAR POSE",
       japaneseName: "星のポーズ",
       description: "手足を大きく広げて、お星さまになろう！",
-      checkMatch: (joints: any, height: number, width: number) => {
+      checkMatch: (joints: any, _height: number, _width: number) => {
         if (!joints.lShoulder || !joints.rShoulder || !joints.lWrist || !joints.rWrist || !joints.lAnkle || !joints.rAnkle) return false;
         
-        // Wrists above shoulders and spread wide
-        const lHigh = joints.lWrist.y < joints.lShoulder.y - height * 0.08;
-        const rHigh = joints.rWrist.y < joints.rShoulder.y - height * 0.08;
+        // Use shoulder width as a dynamic reference to scale matching thresholds
+        const shoulderDist = Math.hypot(
+          joints.lShoulder.x - joints.rShoulder.x,
+          joints.lShoulder.y - joints.rShoulder.y
+        );
+        if (shoulderDist < 10) return false;
+
+        // Wrists above shoulders (scaled dynamically)
+        const lHigh = joints.lWrist.y < joints.lShoulder.y - shoulderDist * 0.45;
+        const rHigh = joints.rWrist.y < joints.rShoulder.y - shoulderDist * 0.45;
         
-        // Legs spread wide
-        const legsWide = Math.abs(joints.lAnkle.x - joints.rAnkle.x) > width * 0.28;
+        // Legs spread wide (scaled dynamically relative to shoulder width)
+        const legsWide = Math.abs(joints.lAnkle.x - joints.rAnkle.x) > shoulderDist * 1.3;
 
         return lHigh && rHigh && legsWide;
       },
@@ -290,15 +304,22 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
       name: "FLAMINGO",
       japaneseName: "フラミンゴのポーズ",
       description: "片足で立って、もう片方のヒザを曲げてキープしてね！",
-      checkMatch: (joints: any, height: number) => {
-        if (!joints.lHip || !joints.rHip || !joints.lKnee || !joints.rKnee || !joints.lAnkle || !joints.rAnkle) return false;
+      checkMatch: (joints: any, _height: number) => {
+        if (!joints.lHip || !joints.rHip || !joints.lKnee || !joints.rKnee || !joints.lAnkle || !joints.rAnkle || !joints.lShoulder || !joints.rShoulder) return false;
         
         const lKneeAngle = calculateAngle(joints.lHip, joints.lKnee, joints.lAnkle);
         const rKneeAngle = calculateAngle(joints.rHip, joints.rKnee, joints.rAnkle);
 
-        // One leg straight, other leg bent and ankle raised
-        const leftLegBent = lKneeAngle < 110 && joints.lAnkle.y < joints.rAnkle.y - height * 0.08 && rKneeAngle > 155;
-        const rightLegBent = rKneeAngle < 110 && joints.rAnkle.y < joints.lAnkle.y - height * 0.08 && lKneeAngle > 155;
+        // Use shoulder width as a dynamic reference to scale matching thresholds
+        const shoulderDist = Math.hypot(
+          joints.lShoulder.x - joints.rShoulder.x,
+          joints.lShoulder.y - joints.rShoulder.y
+        );
+        if (shoulderDist < 10) return false;
+
+        // One leg straight, other leg bent and ankle raised (scaled dynamically relative to shoulder width)
+        const leftLegBent = lKneeAngle < 110 && joints.lAnkle.y < joints.rAnkle.y - shoulderDist * 0.4 && rKneeAngle > 155;
+        const rightLegBent = rKneeAngle < 110 && joints.rAnkle.y < joints.lAnkle.y - shoulderDist * 0.4 && lKneeAngle > 155;
 
         return leftLegBent || rightLegBent;
       },
@@ -337,16 +358,23 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
       name: "ARCHER",
       japaneseName: "弓矢のポーズ",
       description: "片うでをまっすぐ伸ばし、もう片方のうでをグッと引いてね！",
-      checkMatch: (joints: any, height: number) => {
+      checkMatch: (joints: any, _height: number) => {
         if (!joints.lShoulder || !joints.rShoulder || !joints.lElbow || !joints.rElbow || !joints.lWrist || !joints.rWrist) return false;
 
         const lArmAngle = calculateAngle(joints.lShoulder, joints.lElbow, joints.lWrist);
         const rArmAngle = calculateAngle(joints.rShoulder, joints.rElbow, joints.rWrist);
 
-        // Archer Left: Left fully straight, Right arm bent near shoulder
-        const archerLeft = lArmAngle > 160 && rArmAngle < 110 && Math.abs(joints.lWrist.y - joints.lShoulder.y) < height * 0.09;
-        // Archer Right: Right fully straight, Left arm bent near shoulder
-        const archerRight = rArmAngle > 160 && lArmAngle < 110 && Math.abs(joints.rWrist.y - joints.rShoulder.y) < height * 0.09;
+        // Use shoulder width as a dynamic reference to scale matching thresholds
+        const shoulderDist = Math.hypot(
+          joints.lShoulder.x - joints.rShoulder.x,
+          joints.lShoulder.y - joints.rShoulder.y
+        );
+        if (shoulderDist < 10) return false;
+
+        // Archer Left: Left fully straight, Right arm bent near shoulder (scaled dynamically)
+        const archerLeft = lArmAngle > 160 && rArmAngle < 110 && Math.abs(joints.lWrist.y - joints.lShoulder.y) < shoulderDist * 0.6;
+        // Archer Right: Right fully straight, Left arm bent near shoulder (scaled dynamically)
+        const archerRight = rArmAngle > 160 && lArmAngle < 110 && Math.abs(joints.rWrist.y - joints.rShoulder.y) < shoulderDist * 0.6;
 
         return archerLeft || archerRight;
       },
