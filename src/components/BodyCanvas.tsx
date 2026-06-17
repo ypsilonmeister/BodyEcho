@@ -1,0 +1,1229 @@
+import React, { useRef, useEffect, useState } from "react";
+import { audioSynth } from "../utils/audioSynth";
+
+interface BodyCanvasProps {
+  landmarks: any[] | null;
+  calibrated: boolean;
+  setCalibrated: (val: boolean) => void;
+  showTrails: boolean;
+  theme: string;
+  autoCalibMode: "full" | "upper";
+  onResetTriggered: () => void;
+  videoElement: HTMLVideoElement | null;
+  cameraBackground: "calibration" | "always" | "never";
+  gameMode: boolean;
+  stretchHighlights: boolean;
+}
+
+interface Point2D {
+  x: number;
+  y: number;
+  time: number;
+}
+
+interface Ripple {
+  x: number;
+  y: number;
+  radius: number;
+  maxRadius: number;
+  alpha: number;
+  color: string;
+}
+
+interface Particle {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  color: string;
+  alpha: number;
+  size: number;
+  life: number;
+}
+
+// Queue size for trails
+const TRAIL_MAX_POINTS = 16;
+
+export const BodyCanvas: React.FC<BodyCanvasProps> = ({
+  landmarks,
+  calibrated,
+  setCalibrated,
+  showTrails,
+  theme,
+  autoCalibMode,
+  onResetTriggered,
+  videoElement,
+  cameraBackground,
+  gameMode,
+  stretchHighlights,
+}) => {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  // Calibration State
+  const [calibrationProgress, setCalibrationProgress] = useState<number>(0);
+  const calibrationTimerRef = useRef<number | null>(null);
+  const isCalibratingRef = useRef<boolean>(false);
+  const calibStartTimeRef = useRef<number>(0);
+
+  // Gesture Reset State
+  const [resetProgress, setResetProgress] = useState<number>(0);
+  const resetTimerRef = useRef<number | null>(null);
+  const isResettingRef = useRef<boolean>(false);
+  const resetStartTimeRef = useRef<number>(0);
+
+  // Joint Trails
+  const leftWristTrail = useRef<Point2D[]>([]);
+  const rightWristTrail = useRef<Point2D[]>([]);
+  const leftAnkleTrail = useRef<Point2D[]>([]);
+  const rightAnkleTrail = useRef<Point2D[]>([]);
+
+  // Speed values for extremities
+  const leftWristSpeed = useRef<number>(0);
+  const rightWristSpeed = useRef<number>(0);
+  const leftAnkleSpeed = useRef<number>(0);
+  const rightAnkleSpeed = useRef<number>(0);
+
+  // Interactive Visual Effects Arrays
+  const ripplesRef = useRef<Ripple[]>([]);
+  const particlesRef = useRef<Particle[]>([]);
+
+  // Straight Joint Click Trigger States (prevent repeated play)
+  const prevStraightRef = useRef({
+    lElbow: false,
+    rElbow: false,
+    lKnee: false,
+    rKnee: false,
+  });
+
+  // Game Mode States
+  const [activePoseIndex, setActivePoseIndex] = useState<number>(0);
+  const [matchProgress, setMatchProgress] = useState<number>(0); // 0 to 100
+  const isMatchingRef = useRef<boolean>(false);
+  const matchStartRef = useRef<number>(0);
+
+  // Track calibration toggle state
+  const prevCalibrated = useRef<boolean>(calibrated);
+
+  // Clear trails and visual effects helper
+  const clearTrails = () => {
+    leftWristTrail.current = [];
+    rightWristTrail.current = [];
+    leftAnkleTrail.current = [];
+    rightAnkleTrail.current = [];
+    ripplesRef.current = [];
+    particlesRef.current = [];
+    setMatchProgress(0);
+    isMatchingRef.current = false;
+  };
+
+  // Canvas scaling and resizing
+  useEffect(() => {
+    const handleResize = () => {
+      const canvas = canvasRef.current;
+      const container = containerRef.current;
+      if (!canvas || !container) return;
+
+      const dpr = window.devicePixelRatio || 1;
+      const rect = container.getBoundingClientRect();
+      
+      canvas.width = rect.width * dpr;
+      canvas.height = rect.height * dpr;
+      canvas.style.width = `${rect.width}px`;
+      canvas.style.height = `${rect.height}px`;
+
+      const ctx = canvas.getContext("2d");
+      if (ctx) {
+        ctx.scale(dpr, dpr);
+      }
+    };
+
+    window.addEventListener("resize", handleResize);
+    handleResize(); // Initial call
+
+    const timer = setTimeout(handleResize, 100);
+
+    return () => {
+      window.removeEventListener("resize", handleResize);
+      clearTimeout(timer);
+    };
+  }, []);
+
+  // Watch for calibration changes
+  useEffect(() => {
+    if (calibrated !== prevCalibrated.current) {
+      if (!calibrated) {
+        clearTrails();
+      }
+      prevCalibrated.current = calibrated;
+    }
+  }, [calibrated]);
+
+  // Vector Angle calculation helper
+  const calculateAngle = (
+    a: { x: number; y: number } | null,
+    b: { x: number; y: number } | null,
+    c: { x: number; y: number } | null
+  ): number => {
+    if (!a || !b || !c) return 0;
+    
+    // Vectors from joint vertex b
+    const ba = { x: a.x - b.x, y: a.y - b.y };
+    const bc = { x: c.x - b.x, y: c.y - b.y };
+
+    const dotProduct = ba.x * bc.x + ba.y * bc.y;
+    const magBA = Math.sqrt(ba.x * ba.x + ba.y * ba.y);
+    const magBC = Math.sqrt(bc.x * bc.x + bc.y * bc.y);
+
+    if (magBA === 0 || magBC === 0) return 0;
+
+    const cosTheta = dotProduct / (magBA * magBC);
+    const clampedCos = Math.max(-1.0, Math.min(1.0, cosTheta));
+    return Math.acos(clampedCos) * (180.0 / Math.PI);
+  };
+
+  // Target Pose Blueprints definitions
+  const gamePoses = [
+    {
+      name: "T-POSE",
+      japaneseName: "Tのポーズ",
+      description: "両うでをヨコにまっすぐ広げてね！",
+      checkMatch: (joints: any, height: number) => {
+        if (!joints.lShoulder || !joints.rShoulder || !joints.lElbow || !joints.rElbow || !joints.lWrist || !joints.rWrist) return false;
+        
+        // Calculate arm straightness
+        const lAngle = calculateAngle(joints.lShoulder, joints.lElbow, joints.lWrist);
+        const rAngle = calculateAngle(joints.rShoulder, joints.rElbow, joints.rWrist);
+
+        // Check if wrists are horizontal relative to shoulders
+        const lHoriz = Math.abs(joints.lWrist.y - joints.lShoulder.y) < height * 0.09;
+        const rHoriz = Math.abs(joints.rWrist.y - joints.rShoulder.y) < height * 0.09;
+
+        return lAngle > 158 && rAngle > 158 && lHoriz && rHoriz;
+      },
+      drawSilhouette: (ctx: CanvasRenderingContext2D, width: number, height: number, color: string) => {
+        const cX = width / 2;
+        const sY = height * 0.38;
+        const armL = width * 0.25;
+        const spineL = height * 0.35;
+
+        ctx.beginPath();
+        // Arms
+        ctx.moveTo(cX - armL, sY);
+        ctx.lineTo(cX + armL, sY);
+        // Spine
+        ctx.moveTo(cX, sY);
+        ctx.lineTo(cX, sY + spineL);
+        // Hips
+        ctx.moveTo(cX - width * 0.06, sY + spineL);
+        ctx.lineTo(cX + width * 0.06, sY + spineL);
+        // Legs
+        ctx.moveTo(cX - width * 0.04, sY + spineL);
+        ctx.lineTo(cX - width * 0.04, sY + spineL + height * 0.2);
+        ctx.moveTo(cX + width * 0.04, sY + spineL);
+        ctx.lineTo(cX + width * 0.04, sY + spineL + height * 0.2);
+        
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 4;
+        ctx.stroke();
+
+        // Draw node guides
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(cX - armL, sY, 8, 0, 2*Math.PI);
+        ctx.arc(cX + armL, sY, 8, 0, 2*Math.PI);
+        ctx.arc(cX, sY - 40, 15, 0, 2*Math.PI); // head
+        ctx.fill();
+      }
+    },
+    {
+      name: "STAR POSE",
+      japaneseName: "星のポーズ",
+      description: "手足を大きく広げて、お星さまになろう！",
+      checkMatch: (joints: any, height: number, width: number) => {
+        if (!joints.lShoulder || !joints.rShoulder || !joints.lWrist || !joints.rWrist || !joints.lAnkle || !joints.rAnkle) return false;
+        
+        // Wrists above shoulders and spread wide
+        const lHigh = joints.lWrist.y < joints.lShoulder.y - height * 0.08;
+        const rHigh = joints.rWrist.y < joints.rShoulder.y - height * 0.08;
+        
+        // Legs spread wide
+        const legsWide = Math.abs(joints.lAnkle.x - joints.rAnkle.x) > width * 0.28;
+
+        return lHigh && rHigh && legsWide;
+      },
+      drawSilhouette: (ctx: CanvasRenderingContext2D, width: number, height: number, color: string) => {
+        const cX = width / 2;
+        const sY = height * 0.38;
+        const spineL = height * 0.35;
+
+        ctx.beginPath();
+        // Left Arm raised
+        ctx.moveTo(cX, sY);
+        ctx.lineTo(cX - width * 0.18, sY - height * 0.15);
+        // Right Arm raised
+        ctx.moveTo(cX, sY);
+        ctx.lineTo(cX + width * 0.18, sY - height * 0.15);
+        // Spine
+        ctx.moveTo(cX, sY);
+        ctx.lineTo(cX, sY + spineL);
+        // Left Leg wide
+        ctx.moveTo(cX, sY + spineL);
+        ctx.lineTo(cX - width * 0.16, sY + spineL + height * 0.2);
+        // Right Leg wide
+        ctx.moveTo(cX, sY + spineL);
+        ctx.lineTo(cX + width * 0.16, sY + spineL + height * 0.2);
+
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 4;
+        ctx.stroke();
+
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(cX - width * 0.18, sY - height * 0.15, 8, 0, 2*Math.PI);
+        ctx.arc(cX + width * 0.18, sY - height * 0.15, 8, 0, 2*Math.PI);
+        ctx.arc(cX, sY - 40, 15, 0, 2*Math.PI); // head
+        ctx.fill();
+      }
+    },
+    {
+      name: "FLAMINGO",
+      japaneseName: "フラミンゴのポーズ",
+      description: "片足で立って、もう片方のヒザを曲げてキープしてね！",
+      checkMatch: (joints: any, height: number) => {
+        if (!joints.lHip || !joints.rHip || !joints.lKnee || !joints.rKnee || !joints.lAnkle || !joints.rAnkle) return false;
+        
+        const lKneeAngle = calculateAngle(joints.lHip, joints.lKnee, joints.lAnkle);
+        const rKneeAngle = calculateAngle(joints.rHip, joints.rKnee, joints.rAnkle);
+
+        // One leg straight, other leg bent and ankle raised
+        const leftLegBent = lKneeAngle < 110 && joints.lAnkle.y < joints.rAnkle.y - height * 0.08 && rKneeAngle > 155;
+        const rightLegBent = rKneeAngle < 110 && joints.rAnkle.y < joints.lAnkle.y - height * 0.08 && lKneeAngle > 155;
+
+        return leftLegBent || rightLegBent;
+      },
+      drawSilhouette: (ctx: CanvasRenderingContext2D, width: number, height: number, color: string) => {
+        const cX = width / 2;
+        const sY = height * 0.38;
+        const spineL = height * 0.35;
+
+        ctx.beginPath();
+        // Arms slightly low
+        ctx.moveTo(cX - width * 0.15, sY + height * 0.05);
+        ctx.lineTo(cX, sY);
+        ctx.lineTo(cX + width * 0.15, sY + height * 0.05);
+        // Spine
+        ctx.moveTo(cX, sY);
+        ctx.lineTo(cX, sY + spineL);
+        // Left Leg straight
+        ctx.moveTo(cX - width * 0.02, sY + spineL);
+        ctx.lineTo(cX - width * 0.02, sY + spineL + height * 0.2);
+        // Right Leg bent triangularly
+        ctx.moveTo(cX + width * 0.02, sY + spineL);
+        ctx.lineTo(cX + width * 0.1, sY + spineL + height * 0.08); // knee
+        ctx.lineTo(cX + width * 0.02, sY + spineL + height * 0.08); // foot resting
+
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 4;
+        ctx.stroke();
+
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(cX, sY - 40, 15, 0, 2*Math.PI); // head
+        ctx.fill();
+      }
+    },
+    {
+      name: "ARCHER",
+      japaneseName: "弓矢のポーズ",
+      description: "片うでをまっすぐ伸ばし、もう片方のうでをグッと引いてね！",
+      checkMatch: (joints: any, height: number) => {
+        if (!joints.lShoulder || !joints.rShoulder || !joints.lElbow || !joints.rElbow || !joints.lWrist || !joints.rWrist) return false;
+
+        const lArmAngle = calculateAngle(joints.lShoulder, joints.lElbow, joints.lWrist);
+        const rArmAngle = calculateAngle(joints.rShoulder, joints.rElbow, joints.rWrist);
+
+        // Archer Left: Left fully straight, Right arm bent near shoulder
+        const archerLeft = lArmAngle > 160 && rArmAngle < 110 && Math.abs(joints.lWrist.y - joints.lShoulder.y) < height * 0.09;
+        // Archer Right: Right fully straight, Left arm bent near shoulder
+        const archerRight = rArmAngle > 160 && lArmAngle < 110 && Math.abs(joints.rWrist.y - joints.rShoulder.y) < height * 0.09;
+
+        return archerLeft || archerRight;
+      },
+      drawSilhouette: (ctx: CanvasRenderingContext2D, width: number, height: number, color: string) => {
+        const cX = width / 2;
+        const sY = height * 0.38;
+        const spineL = height * 0.35;
+
+        ctx.beginPath();
+        // Left Arm extended straight
+        ctx.moveTo(cX, sY);
+        ctx.lineTo(cX - width * 0.25, sY);
+        // Right Arm pulled back
+        ctx.moveTo(cX, sY);
+        ctx.lineTo(cX + width * 0.08, sY - height * 0.04);
+        ctx.lineTo(cX + width * 0.05, sY + height * 0.06);
+        // Spine
+        ctx.moveTo(cX, sY);
+        ctx.lineTo(cX, sY + spineL);
+        // Legs standing
+        ctx.moveTo(cX - width * 0.05, sY + spineL);
+        ctx.lineTo(cX - width * 0.05, sY + spineL + height * 0.2);
+        ctx.moveTo(cX + width * 0.05, sY + spineL);
+        ctx.lineTo(cX + width * 0.05, sY + spineL + height * 0.2);
+
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 4;
+        ctx.stroke();
+
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(cX - width * 0.25, sY, 8, 0, 2*Math.PI); // left wrist
+        ctx.arc(cX + width * 0.05, sY + height * 0.06, 8, 0, 2*Math.PI); // right wrist
+        ctx.arc(cX, sY - 40, 15, 0, 2*Math.PI); // head
+        ctx.fill();
+      }
+    }
+  ];
+
+  // Helper: Filter target poses based on calibration mode (seated/full)
+  const getActivePoses = () => {
+    if (autoCalibMode === "upper") {
+      // Exclude Flamingo pose which requires ankle balance tracking
+      return gamePoses.filter(pose => pose.name !== "FLAMINGO");
+    }
+    return gamePoses;
+  };
+
+  // Helper: Spawn fireworks particles on clear
+  const triggerFireworks = (centerX: number, centerY: number, colors: any) => {
+    const particles = particlesRef.current;
+    const palette = [colors.right, colors.left, "#ffffff", "#ffb700", "#00ffaa"];
+    
+    for (let i = 0; i < 40; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = Math.random() * 8 + 3;
+      particles.push({
+        x: centerX,
+        y: centerY,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        color: palette[Math.floor(Math.random() * palette.length)],
+        alpha: 1.0,
+        size: Math.random() * 4 + 2,
+        life: Math.random() * 0.02 + 0.015,
+      });
+    }
+  };
+
+  // Helper: Spawn sparkles for high-velocity joint trails
+  const triggerTrailSparkles = (x: number, y: number, color: string, speed: number) => {
+    const particles = particlesRef.current;
+    const particleCount = Math.min(3, Math.floor(speed / 6));
+
+    for (let i = 0; i < particleCount; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const velocity = Math.random() * 2 + 1;
+      particles.push({
+        x,
+        y,
+        vx: Math.cos(angle) * velocity,
+        vy: Math.sin(angle) * velocity - 0.5, // slight upward float
+        color: color,
+        alpha: 0.8,
+        size: Math.random() * 2.5 + 1,
+        life: 0.03, // quick fade
+      });
+    }
+  };
+
+  // Render loop
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const width = canvas.width / (window.devicePixelRatio || 1);
+    const height = canvas.height / (window.devicePixelRatio || 1);
+
+    // Clear background
+    ctx.clearRect(0, 0, width, height);
+    ctx.fillStyle = "rgba(0, 0, 0, 0)";
+    ctx.fillRect(0, 0, width, height);
+
+    // Render camera feed as background if requested
+    const shouldShowCamera = cameraBackground === "always" || (!calibrated && cameraBackground === "calibration");
+    if (shouldShowCamera && videoElement && videoElement.readyState >= 2) {
+      ctx.save();
+      ctx.translate(width, 0);
+      ctx.scale(-1, 1);
+      ctx.globalAlpha = 0.25;
+      ctx.drawImage(videoElement, 0, 0, width, height);
+      ctx.restore();
+    }
+
+    // Draw grid background guidelines if not calibrated
+    if (!calibrated) {
+      drawCalibrationOverlay(ctx, width, height);
+    }
+
+    if (!landmarks || landmarks.length === 0) {
+      cancelCalibration();
+      cancelReset();
+      return;
+    }
+
+    const pose = landmarks[0];
+
+    // Check calibration & reset states
+    handleCalibrationCheck(pose);
+    handleResetCheck(pose);
+
+    if (calibrated) {
+      // Retrieve theme color values
+      const style = getComputedStyle(document.body);
+      const colorRight = style.getPropertyValue("--color-right").trim() || "#00f0ff";
+      const colorLeft = style.getPropertyValue("--color-left").trim() || "#ff007f";
+      const colorCenter = style.getPropertyValue("--color-center").trim() || "#ffffff";
+      const colorRightGlow = style.getPropertyValue("--color-right-glow").trim() || "rgba(0, 240, 255, 0.4)";
+      const colorLeftGlow = style.getPropertyValue("--color-left-glow").trim() || "rgba(255, 0, 127, 0.4)";
+      const colorCenterGlow = style.getPropertyValue("--color-center-glow").trim() || "rgba(255, 255, 255, 0.3)";
+
+      const colors = {
+        right: colorRight,
+        left: colorLeft,
+        center: colorCenter,
+        rightGlow: colorRightGlow,
+        leftGlow: colorLeftGlow,
+        centerGlow: colorCenterGlow,
+      };
+
+      const jointRadius = height * 0.011;
+      const boneWidth = height * 0.005;
+
+      const getCanvasPoint = (index: number) => {
+        const pt = pose[index];
+        if (!pt) return null;
+        return {
+          x: (1.0 - pt.x) * width,
+          y: pt.y * height,
+          z: pt.z,
+          visibility: pt.visibility !== undefined ? pt.visibility : 1.0,
+        };
+      };
+
+      const joints = {
+        nose: getCanvasPoint(0),
+        lEye: getCanvasPoint(2),
+        rEye: getCanvasPoint(5),
+        lShoulder: getCanvasPoint(11),
+        rShoulder: getCanvasPoint(12),
+        lElbow: getCanvasPoint(13),
+        rElbow: getCanvasPoint(14),
+        lWrist: getCanvasPoint(15),
+        rWrist: getCanvasPoint(16),
+        lHip: getCanvasPoint(23),
+        rHip: getCanvasPoint(24),
+        lKnee: getCanvasPoint(25),
+        rKnee: getCanvasPoint(26),
+        lAnkle: getCanvasPoint(27),
+        rAnkle: getCanvasPoint(28),
+      };
+
+      // 1. Calculate Joint Angles
+      const angles = {
+        lElbow: calculateAngle(joints.lShoulder, joints.lElbow, joints.lWrist),
+        rElbow: calculateAngle(joints.rShoulder, joints.rElbow, joints.rWrist),
+        lKnee: calculateAngle(joints.lHip, joints.lKnee, joints.lAnkle),
+        rKnee: calculateAngle(joints.rHip, joints.rKnee, joints.rAnkle),
+      };
+
+      // 2. Trigonometry Stretches Feedback (Ripples & Clicks)
+      if (stretchHighlights) {
+        const checkStretch = (
+          angle: number,
+          jointPt: any,
+          sideKey: "lElbow" | "rElbow" | "lKnee" | "rKnee",
+          color: string
+        ) => {
+          if (!jointPt || jointPt.visibility < 0.6) return;
+          const isStraightNow = angle > 166;
+          
+          if (isStraightNow) {
+            // Trigger ripple once on initial transition
+            if (!prevStraightRef.current[sideKey]) {
+              prevStraightRef.current[sideKey] = true;
+              audioSynth.playJointClick(sideKey.startsWith("l") ? 680 : 880);
+              
+              // Spawn a neon ripple ring
+              ripplesRef.current.push({
+                x: jointPt.x,
+                y: jointPt.y,
+                radius: jointRadius,
+                maxRadius: jointRadius * 4,
+                alpha: 0.8,
+                color: color,
+              });
+            }
+          } else if (angle < 140) {
+            // Add hysteresis window to prevent rapid clicking toggling
+            prevStraightRef.current[sideKey] = false;
+          }
+        };
+
+        checkStretch(angles.lElbow, joints.lElbow, "lElbow", colors.left);
+        checkStretch(angles.rElbow, joints.rElbow, "rElbow", colors.right);
+        
+        if (autoCalibMode === "full") {
+          checkStretch(angles.lKnee, joints.lKnee, "lKnee", colors.left);
+          checkStretch(angles.rKnee, joints.rKnee, "rKnee", colors.right);
+        }
+      }
+
+      // 3. Update Joint Trails (Speed Responsive)
+      if (showTrails) {
+        updateTrailsWithSpeed(joints);
+        drawTrails(ctx, colors, height);
+      }
+
+      // 4. Update and Render Ripples & Sparkle Particles
+      updateAndDrawRipples(ctx, height);
+      updateAndDrawParticles(ctx);
+
+      // 5. Draw Skeleton Bones
+      ctx.shadowBlur = 15;
+      ctx.lineCap = "round";
+
+      if (joints.lShoulder && joints.rShoulder && joints.lHip && joints.rHip) {
+        const neckCenter = {
+          x: (joints.lShoulder.x + joints.rShoulder.x) / 2,
+          y: (joints.lShoulder.y + joints.rShoulder.y) / 2,
+        };
+        const pelvisCenter = {
+          x: (joints.lHip.x + joints.rHip.x) / 2,
+          y: (joints.lHip.y + joints.rHip.y) / 2,
+        };
+
+        // Draw center lines
+        drawBone(ctx, neckCenter, pelvisCenter, colors.center, colors.centerGlow, boneWidth);
+        drawBone(ctx, joints.lShoulder, joints.rShoulder, colors.center, colors.centerGlow, boneWidth);
+        drawBone(ctx, joints.lHip, joints.rHip, colors.center, colors.centerGlow, boneWidth);
+        if (joints.nose) {
+          drawBone(ctx, joints.nose, neckCenter, colors.center, colors.centerGlow, boneWidth);
+        }
+      }
+
+      // Draw Left Half (Magenta)
+      const drawBoneWithHighlight = (p1: any, p2: any, angleCheck: boolean, color: string, glow: string) => {
+        if (!p1 || !p2) return;
+        const currentBoneWidth = angleCheck && stretchHighlights ? boneWidth * 1.8 : boneWidth;
+        const currentColor = angleCheck && stretchHighlights ? "#ffffff" : color;
+        const currentGlow = angleCheck && stretchHighlights ? "rgba(255,255,255,0.8)" : glow;
+        
+        drawBone(ctx, p1, p2, currentColor, currentGlow, currentBoneWidth);
+      };
+
+      drawBoneWithHighlight(joints.lShoulder, joints.lElbow, angles.lElbow > 166, colors.left, colors.leftGlow);
+      drawBoneWithHighlight(joints.lElbow, joints.lWrist, angles.lElbow > 166, colors.left, colors.leftGlow);
+      if (joints.lShoulder && joints.lHip) drawBone(ctx, joints.lShoulder, joints.lHip, colors.left, colors.leftGlow, boneWidth * 0.7);
+      drawBoneWithHighlight(joints.lHip, joints.lKnee, angles.lKnee > 166, colors.left, colors.leftGlow);
+      drawBoneWithHighlight(joints.lKnee, joints.lAnkle, angles.lKnee > 166, colors.left, colors.leftGlow);
+
+      // Draw Right Half (Cyan)
+      drawBoneWithHighlight(joints.rShoulder, joints.rElbow, angles.rElbow > 166, colors.right, colors.rightGlow);
+      drawBoneWithHighlight(joints.rElbow, joints.rWrist, angles.rElbow > 166, colors.right, colors.rightGlow);
+      if (joints.rShoulder && joints.rHip) drawBone(ctx, joints.rShoulder, joints.rHip, colors.right, colors.rightGlow, boneWidth * 0.7);
+      drawBoneWithHighlight(joints.rHip, joints.rKnee, angles.rKnee > 166, colors.right, colors.rightGlow);
+      drawBoneWithHighlight(joints.rKnee, joints.rAnkle, angles.rKnee > 166, colors.right, colors.rightGlow);
+
+      // Draw Joint Nodes
+      if (joints.nose && joints.nose.visibility > 0.5) {
+        drawJoint(ctx, joints.nose, colors.center, colors.centerGlow, jointRadius * 1.5);
+      }
+
+      // Draw left joints
+      const leftJointItems = [
+        { pt: joints.lShoulder, active: false },
+        { pt: joints.lElbow, active: angles.lElbow > 166 },
+        { pt: joints.lWrist, active: false },
+        { pt: joints.lHip, active: false },
+        { pt: joints.lKnee, active: angles.lKnee > 166 },
+        { pt: joints.lAnkle, active: false },
+      ];
+      leftJointItems.forEach((item) => {
+        if (item.pt && item.pt.visibility > 0.5) {
+          const r = item.active && stretchHighlights ? jointRadius * 1.5 : jointRadius;
+          const col = item.active && stretchHighlights ? "#ffffff" : colors.left;
+          drawJoint(ctx, item.pt, col, colors.leftGlow, r);
+        }
+      });
+
+      // Draw right joints
+      const rightJointItems = [
+        { pt: joints.rShoulder, active: false },
+        { pt: joints.rElbow, active: angles.rElbow > 166 },
+        { pt: joints.rWrist, active: false },
+        { pt: joints.rHip, active: false },
+        { pt: joints.rKnee, active: angles.rKnee > 166 },
+        { pt: joints.rAnkle, active: false },
+      ];
+      rightJointItems.forEach((item) => {
+        if (item.pt && item.pt.visibility > 0.5) {
+          const r = item.active && stretchHighlights ? jointRadius * 1.5 : jointRadius;
+          const col = item.active && stretchHighlights ? "#ffffff" : colors.right;
+          drawJoint(ctx, item.pt, col, colors.rightGlow, r);
+        }
+      });
+
+      // 6. Game Mode Overlay & Posture Checks
+      if (gameMode) {
+        const activePoses = getActivePoses();
+        const currentPose = activePoses[activePoseIndex];
+        
+        if (currentPose) {
+          // Draw target dotted silhouette
+          ctx.save();
+          ctx.setLineDash([6, 6]);
+          ctx.shadowBlur = 10;
+          ctx.shadowColor = "rgba(255, 255, 255, 0.15)";
+          
+          const isMatchActive = currentPose.checkMatch(joints, height, width);
+          const silhouetteColor = isMatchActive ? "#ffb700" : "rgba(255, 255, 255, 0.18)";
+          
+          currentPose.drawSilhouette(ctx, width, height, silhouetteColor);
+          ctx.restore();
+
+          // Render matching progress circular ring around head (target node) or center
+          if (isMatchActive) {
+            if (!isMatchingRef.current) {
+              isMatchingRef.current = true;
+              matchStartRef.current = Date.now();
+            }
+
+            const elapsed = Date.now() - matchStartRef.current;
+            const progress = Math.min(100, (elapsed / 1200) * 100); // 1.2 seconds hold
+            setMatchProgress(progress);
+
+            if (elapsed >= 1200) {
+              // Target Matched! Play fanfare, burst fireworks, next pose
+              audioSynth.playPoseClear();
+              if (joints.nose) {
+                triggerFireworks(joints.nose.x, joints.nose.y, colors);
+              } else {
+                triggerFireworks(width / 2, height * 0.4, colors);
+              }
+
+              // Advance index
+              setActivePoseIndex((prev) => (prev + 1) % activePoses.length);
+              setMatchProgress(0);
+              isMatchingRef.current = false;
+            }
+          } else {
+            // Decay progress slowly if wobbly
+            if (isMatchingRef.current) {
+              const elapsed = Date.now() - matchStartRef.current;
+              if (elapsed < 100) {
+                isMatchingRef.current = false;
+                setMatchProgress(0);
+              } else {
+                // decay
+                setMatchProgress((prev) => Math.max(0, prev - 4));
+                if (matchProgress === 0) {
+                  isMatchingRef.current = false;
+                }
+              }
+            }
+          }
+
+          // Draw progress ring around nose/head
+          if (matchProgress > 0 && joints.nose) {
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(joints.nose.x, joints.nose.y, jointRadius * 2.2, -0.5 * Math.PI, (-0.5 + 2 * (matchProgress / 100)) * Math.PI);
+            ctx.strokeStyle = "#ffb700";
+            ctx.lineWidth = height * 0.005;
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = "rgba(255, 183, 0, 0.6)";
+            ctx.stroke();
+            ctx.restore();
+          }
+        }
+      }
+
+      // Reset Gesture Ring
+      if (isResettingRef.current && joints.nose) {
+        drawResetRing(ctx, joints.nose, height);
+      }
+    }
+  }, [
+    landmarks,
+    calibrated,
+    showTrails,
+    theme,
+    autoCalibMode,
+    videoElement,
+    cameraBackground,
+    gameMode,
+    stretchHighlights,
+    activePoseIndex,
+    matchProgress
+  ]);
+
+  // Update particles positions and fade
+  const updateAndDrawParticles = (ctx: CanvasRenderingContext2D) => {
+    const particles = particlesRef.current;
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const p = particles[i];
+      p.x += p.vx;
+      p.y += p.vy;
+      p.alpha -= p.life;
+      
+      if (p.alpha <= 0) {
+        particles.splice(i, 1);
+      } else {
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size, 0, 2 * Math.PI);
+        ctx.fillStyle = p.color;
+        ctx.globalAlpha = p.alpha;
+        ctx.shadowBlur = 8;
+        ctx.shadowColor = p.color;
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+  };
+
+  // Update expanding ripples
+  const updateAndDrawRipples = (ctx: CanvasRenderingContext2D, height: number) => {
+    const ripples = ripplesRef.current;
+    for (let i = ripples.length - 1; i >= 0; i--) {
+      const r = ripples[i];
+      r.radius += height * 0.006; // expansion rate
+      r.alpha -= 0.025; // fade rate
+
+      if (r.alpha <= 0) {
+        ripples.splice(i, 1);
+      } else {
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(r.x, r.y, r.radius, 0, 2 * Math.PI);
+        ctx.strokeStyle = r.color;
+        ctx.globalAlpha = r.alpha;
+        ctx.lineWidth = height * 0.003;
+        ctx.shadowBlur = 15;
+        ctx.shadowColor = r.color;
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+  };
+
+  // Helper: Draw single skeleton bone segment
+  const drawBone = (
+    ctx: CanvasRenderingContext2D,
+    p1: { x: number; y: number },
+    p2: { x: number; y: number },
+    color: string,
+    glowColor: string,
+    width: number
+  ) => {
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(p1.x, p1.y);
+    ctx.lineTo(p2.x, p2.y);
+    ctx.lineWidth = width;
+    ctx.strokeStyle = color;
+    ctx.shadowColor = glowColor;
+    ctx.stroke();
+    ctx.restore();
+  };
+
+  // Helper: Draw single joint node
+  const drawJoint = (
+    ctx: CanvasRenderingContext2D,
+    pt: { x: number; y: number },
+    color: string,
+    glowColor: string,
+    radius: number
+  ) => {
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(pt.x, pt.y, radius, 0, 2 * Math.PI);
+    ctx.fillStyle = color;
+    ctx.shadowBlur = 15;
+    ctx.shadowColor = glowColor;
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.arc(pt.x, pt.y, radius * 0.4, 0, 2 * Math.PI);
+    ctx.fillStyle = "#ffffff";
+    ctx.shadowBlur = 0;
+    ctx.fill();
+    ctx.restore();
+  };
+
+  // Update trail queues and calculate velocity values
+  const updateTrailsWithSpeed = (joints: any) => {
+    const now = Date.now();
+    const updateJointTrail = (
+      joint: any,
+      trailRef: React.MutableRefObject<Point2D[]>,
+      speedRef: React.MutableRefObject<number>
+    ) => {
+      if (joint && joint.visibility > 0.7) {
+        const lastPt = trailRef.current[trailRef.current.length - 1];
+        if (lastPt) {
+          const dx = joint.x - lastPt.x;
+          const dy = joint.y - lastPt.y;
+          const distance = Math.sqrt(dx * dx + dy * dy);
+          speedRef.current = distance; // pixels moved this frame
+        } else {
+          speedRef.current = 0;
+        }
+
+        trailRef.current.push({ x: joint.x, y: joint.y, time: now });
+        if (trailRef.current.length > TRAIL_MAX_POINTS) {
+          trailRef.current.shift();
+        }
+      } else {
+        if (trailRef.current.length > 0) {
+          trailRef.current.shift();
+        }
+        speedRef.current = 0;
+      }
+    };
+
+    updateJointTrail(joints.lWrist, leftWristTrail, leftWristSpeed);
+    updateJointTrail(joints.rWrist, rightWristTrail, rightWristSpeed);
+    updateJointTrail(joints.lAnkle, leftAnkleTrail, leftAnkleSpeed);
+    updateJointTrail(joints.rAnkle, rightAnkleTrail, rightAnkleSpeed);
+  };
+
+  // Draw extremity trails ribbons with velocity feedback
+  const drawTrails = (ctx: CanvasRenderingContext2D, colors: any, height: number) => {
+    const drawSingleTrail = (trail: Point2D[], speed: number, color: string, glowColor: string) => {
+      if (trail.length < 2) return;
+
+      const isFast = speed > 10;
+      // If moving quickly, blend the trail color with gold/white
+      const ribbonColor = isFast ? "#ffffff" : color;
+      const ribbonGlow = isFast ? "rgba(255, 255, 255, 0.7)" : glowColor;
+
+      ctx.save();
+      ctx.shadowBlur = isFast ? 18 : 10;
+      ctx.shadowColor = ribbonGlow;
+
+      // Draw trail particles
+      for (let i = 0; i < trail.length; i++) {
+        const pt = trail[i];
+        const opacity = (i + 1) / trail.length;
+        const size = (height * 0.007) * opacity * (isFast ? 1.4 : 1.0);
+
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, size, 0, 2 * Math.PI);
+        ctx.fillStyle = ribbonColor;
+        ctx.globalAlpha = opacity * 0.45;
+        ctx.fill();
+
+        // High speed sparks particles spawning along trails
+        if (isFast && i === trail.length - 1) {
+          triggerTrailSparkles(pt.x, pt.y, color, speed);
+        }
+
+        // Spiral secondary particle DNA tracer
+        if (i > 0 && i % 3 === 0) {
+          const angle = (pt.time / 130) + (i * 0.5);
+          const offset = size * (isFast ? 2.8 : 2.2);
+          const spiralX = pt.x + Math.cos(angle) * offset;
+          const spiralY = pt.y + Math.sin(angle) * offset;
+
+          ctx.beginPath();
+          ctx.arc(spiralX, spiralY, size * 0.35, 0, 2 * Math.PI);
+          ctx.fillStyle = "#ffffff";
+          ctx.globalAlpha = opacity * 0.6;
+          ctx.fill();
+        }
+      }
+
+      // Draw ribbon connecting line
+      ctx.beginPath();
+      ctx.moveTo(trail[0].x, trail[0].y);
+      for (let i = 1; i < trail.length; i++) {
+        const xc = (trail[i].x + trail[i - 1].x) / 2;
+        const yc = (trail[i].y + trail[i - 1].y) / 2;
+        ctx.quadraticCurveTo(trail[i - 1].x, trail[i - 1].y, xc, yc);
+      }
+      ctx.lineWidth = height * (isFast ? 0.004 : 0.0025);
+      ctx.strokeStyle = ribbonColor;
+      ctx.globalAlpha = 0.5;
+      ctx.stroke();
+
+      ctx.restore();
+    };
+
+    drawSingleTrail(leftWristTrail.current, leftWristSpeed.current, colors.left, colors.leftGlow);
+    drawSingleTrail(rightWristTrail.current, rightWristSpeed.current, colors.right, colors.rightGlow);
+    drawSingleTrail(leftAnkleTrail.current, leftAnkleSpeed.current, colors.left, colors.leftGlow);
+    drawSingleTrail(rightAnkleTrail.current, rightAnkleSpeed.current, colors.right, colors.rightGlow);
+  };
+
+  // Calibration state checkers
+  const handleCalibrationCheck = (pose: any) => {
+    if (calibrated) return;
+
+    const requiredIndices = autoCalibMode === "full" 
+      ? [11, 12, 23, 24, 25, 26, 27, 28] 
+      : [11, 12, 23, 24];
+
+    const allVisible = requiredIndices.every((idx) => {
+      const pt = pose[idx];
+      return pt && pt.visibility > 0.65;
+    });
+
+    if (allVisible) {
+      if (!isCalibratingRef.current) {
+        isCalibratingRef.current = true;
+        calibStartTimeRef.current = Date.now();
+        audioSynth.playCalibrationStart();
+        
+        if (calibrationTimerRef.current) clearInterval(calibrationTimerRef.current);
+        
+        calibrationTimerRef.current = window.setInterval(() => {
+          const elapsed = Date.now() - calibStartTimeRef.current;
+          const progress = Math.min(100, (elapsed / 3000) * 100);
+          setCalibrationProgress(progress);
+
+          if (elapsed >= 3000) {
+            clearInterval(calibrationTimerRef.current!);
+            calibrationTimerRef.current = null;
+            isCalibratingRef.current = false;
+            setCalibrationProgress(0);
+            setCalibrated(true);
+            audioSynth.playCalibrationSuccess();
+          }
+        }, 50);
+      }
+    } else {
+      cancelCalibration();
+    }
+  };
+
+  const cancelCalibration = () => {
+    if (isCalibratingRef.current) {
+      isCalibratingRef.current = false;
+      if (calibrationTimerRef.current) {
+        clearInterval(calibrationTimerRef.current);
+        calibrationTimerRef.current = null;
+      }
+      setCalibrationProgress(0);
+    }
+  };
+
+  // Reset Gesture checks
+  const handleResetCheck = (pose: any) => {
+    if (!calibrated) return;
+
+    const lWrist = pose[15];
+    const rWrist = pose[16];
+    const nose = pose[0];
+    const lEye = pose[2];
+    const rEye = pose[5];
+    
+    const headTopY = nose && lEye && rEye 
+      ? Math.min(nose.y, lEye.y, rEye.y) 
+      : 0.2;
+
+    const isWristAboveHead = (wrist: any) => {
+      return wrist && wrist.visibility > 0.65 && wrist.y < headTopY - 0.08;
+    };
+
+    const isResetGestureActive = isWristAboveHead(lWrist) && isWristAboveHead(rWrist);
+
+    if (isResetGestureActive) {
+      if (!isResettingRef.current) {
+        isResettingRef.current = true;
+        resetStartTimeRef.current = Date.now();
+
+        if (resetTimerRef.current) clearInterval(resetTimerRef.current);
+        
+        resetTimerRef.current = window.setInterval(() => {
+          const elapsed = Date.now() - resetStartTimeRef.current;
+          const progress = Math.min(100, (elapsed / 1500) * 100);
+          setResetProgress(progress);
+
+          if (elapsed >= 1500) {
+            clearInterval(resetTimerRef.current!);
+            resetTimerRef.current = null;
+            isResettingRef.current = false;
+            setResetProgress(0);
+            
+            audioSynth.playReset();
+            onResetTriggered();
+            setCalibrated(false);
+          }
+        }, 50);
+      }
+    } else {
+      cancelReset();
+    }
+  };
+
+  const cancelReset = () => {
+    if (isResettingRef.current) {
+      isResettingRef.current = false;
+      if (resetTimerRef.current) {
+        clearInterval(resetTimerRef.current);
+        resetTimerRef.current = null;
+      }
+      setResetProgress(0);
+    }
+  };
+
+  // Outer calibration overlays
+  const drawCalibrationOverlay = (ctx: CanvasRenderingContext2D, width: number, height: number) => {
+    const isCalibActive = isCalibratingRef.current;
+    
+    ctx.save();
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = isCalibActive ? "rgba(0, 240, 255, 0.2)" : "rgba(255, 255, 255, 0.08)";
+    ctx.setLineDash([8, 8]);
+    ctx.strokeRect(30, 30, width - 60, height - 60);
+
+    if (isCalibActive) {
+      const centerX = width / 2;
+      const centerY = height * 0.45;
+      const radius = height * 0.12;
+
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI);
+      ctx.strokeStyle = "rgba(0, 240, 255, 0.1)";
+      ctx.lineWidth = height * 0.015;
+      ctx.setLineDash([]);
+      ctx.stroke();
+
+      ctx.beginPath();
+      const startAngle = -0.5 * Math.PI;
+      const endAngle = startAngle + (2 * Math.PI * (calibrationProgress / 100));
+      ctx.arc(centerX, centerY, radius, startAngle, endAngle);
+      ctx.strokeStyle = "var(--color-right)";
+      ctx.lineWidth = height * 0.01;
+      ctx.shadowBlur = 15;
+      ctx.shadowColor = "var(--color-right-glow)";
+      ctx.stroke();
+
+      const countdownSec = Math.ceil(3 - (3 * (calibrationProgress / 100)));
+      ctx.font = `bold ${height * 0.07}px var(--font-sans)`;
+      ctx.fillStyle = "#ffffff";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.shadowBlur = 8;
+      ctx.shadowColor = "rgba(0, 240, 255, 0.4)";
+      ctx.fillText(String(countdownSec), centerX, centerY);
+    } else {
+      const centerX = width / 2;
+      const centerY = height * 0.45;
+      const scale = height * 0.15;
+      
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.04)";
+      ctx.lineWidth = 3;
+      ctx.setLineDash([]);
+      
+      ctx.beginPath();
+      ctx.arc(centerX, centerY - scale * 0.35, scale * 0.2, 0, 2 * Math.PI);
+      ctx.stroke();
+      
+      ctx.beginPath();
+      ctx.moveTo(centerX - scale * 0.6, centerY + scale * 0.2);
+      ctx.lineTo(centerX + scale * 0.6, centerY + scale * 0.2);
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.moveTo(centerX - scale * 0.3, centerY + scale * 0.2);
+      ctx.lineTo(centerX - scale * 0.3, centerY + scale * 0.8);
+      ctx.moveTo(centerX + scale * 0.3, centerY + scale * 0.2);
+      ctx.lineTo(centerX + scale * 0.3, centerY + scale * 0.8);
+      ctx.stroke();
+    }
+
+    ctx.restore();
+  };
+
+  const drawResetRing = (ctx: CanvasRenderingContext2D, nose: any, height: number) => {
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(nose.x, nose.y, height * 0.05, 0, 2 * Math.PI);
+    ctx.strokeStyle = "rgba(255, 0, 127, 0.15)";
+    ctx.lineWidth = height * 0.008;
+    ctx.stroke();
+
+    ctx.beginPath();
+    const startAngle = -0.5 * Math.PI;
+    const endAngle = startAngle + (2 * Math.PI * (resetProgress / 100));
+    ctx.arc(nose.x, nose.y, height * 0.05, startAngle, endAngle);
+    ctx.strokeStyle = "var(--color-left)";
+    ctx.lineWidth = height * 0.006;
+    ctx.shadowBlur = 10;
+    ctx.shadowColor = "var(--color-left-glow)";
+    ctx.stroke();
+
+    ctx.font = `bold ${height * 0.015}px var(--font-sans)`;
+    ctx.fillStyle = "var(--color-left)";
+    ctx.textAlign = "center";
+    ctx.fillText("RESETTING", nose.x, nose.y - height * 0.07);
+
+    ctx.restore();
+  };
+
+  // Exposed Game Instructions Header Content
+  const activePoses = getActivePoses();
+  const currentPose = activePoses[activePoseIndex];
+
+  return (
+    <div className="app-container" ref={containerRef}>
+      {/* Dynamic Game Title Overlay inside Canvas viewport */}
+      {calibrated && gameMode && currentPose && (
+        <div style={{
+          position: "absolute",
+          top: 76,
+          left: "50%",
+          transform: "translateX(-50%)",
+          fontFamily: "var(--font-sans)",
+          textAlign: "center",
+          zIndex: 5,
+          pointerEvents: "none"
+        }}>
+          <div style={{
+            fontSize: 12,
+            fontWeight: 700,
+            color: "#ffb700",
+            letterSpacing: 1.5,
+            textTransform: "uppercase",
+            marginBottom: 2
+          }}>
+            POSE MATCHING GAME
+          </div>
+          <div style={{
+            fontSize: 22,
+            fontWeight: 700,
+            color: "#ffffff",
+            textShadow: "0 0 10px rgba(255, 255, 255, 0.2)"
+          }}>
+            {currentPose.japaneseName}
+          </div>
+          <div style={{
+            fontSize: 13,
+            color: "var(--text-secondary)",
+            marginTop: 4
+          }}>
+            {currentPose.description}
+          </div>
+        </div>
+      )}
+      <canvas className="render-canvas" ref={canvasRef} />
+    </div>
+  );
+};
+export default BodyCanvas;
