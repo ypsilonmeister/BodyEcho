@@ -181,6 +181,21 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
     setKanjiChar
   });
 
+  // Latest-ref mirrors for game callbacks/state consumed inside the once-created
+  // 60fps render loop. The loop captures the FIRST closure of each hook return,
+  // so reading them directly would freeze stale values. Reassigning these refs in
+  // the component body every render lets the loop call the freshest closure.
+  const updateAndDrawPoseGameRef = useRef(updateAndDrawPoseGame);
+  const updateAndDrawTraceGameRef = useRef(updateAndDrawTraceGame);
+  const updateAndDrawKanjiGameRef = useRef(updateAndDrawKanjiGame);
+  const triggerKanjiSuccessRef = useRef(triggerKanjiSuccess);
+  const kanjiStateMirrorRef = useRef(kanjiState);
+  updateAndDrawPoseGameRef.current = updateAndDrawPoseGame;
+  updateAndDrawTraceGameRef.current = updateAndDrawTraceGame;
+  updateAndDrawKanjiGameRef.current = updateAndDrawKanjiGame;
+  triggerKanjiSuccessRef.current = triggerKanjiSuccess;
+  kanjiStateMirrorRef.current = kanjiState;
+
   const btnHoverProgressesRef = useRef<Record<string, number>>({
     pose: 0,
     trace: 0,
@@ -642,7 +657,7 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
           });
 
           // In Kanji game: also show Done button on top left (closer to center)
-          if (gameTypeRef.current === "kanji" && kanjiState === "writing") {
+          if (gameTypeRef.current === "kanji" && kanjiStateMirrorRef.current === "writing") {
             buttonsConfig.push({
               id: "done" as const,
               x: width * 0.36,
@@ -650,7 +665,7 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
               labelJa: "できた！",
               isActive: false,
               action: () => {
-                triggerKanjiSuccess(width, height, colors, triggerFireworks);
+                triggerKanjiSuccessRef.current(width, height, colors, triggerFireworks);
               }
             });
           }
@@ -981,11 +996,11 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
         // 6. Game Mode Overlay & Posture Checks
         if (gameModeRef.current) {
           if (gameTypeRef.current === "pose") {
-            updateAndDrawPoseGame(ctx, joints, width, height, colors, jointRadius, triggerFireworks);
+            updateAndDrawPoseGameRef.current(ctx, joints, width, height, colors, jointRadius, triggerFireworks);
           } else if (gameTypeRef.current === "trace") {
-            updateAndDrawTraceGame(ctx, joints, width, height, colors, particlesRef);
+            updateAndDrawTraceGameRef.current(ctx, joints, width, height, colors, particlesRef);
           } else if (gameTypeRef.current === "kanji") {
-            updateAndDrawKanjiGame(ctx, joints, width, height, colors, particlesRef, triggerFireworks);
+            updateAndDrawKanjiGameRef.current(ctx, joints, width, height, colors, particlesRef, triggerFireworks);
           }
         }
 
