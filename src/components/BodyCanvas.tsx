@@ -851,14 +851,16 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
           
           ctx.save();
           const cX = width / 2;
-          const cY = height * 0.48;
-          
+          // Push the guide below the air-buttons zone (buttons sit up to ~height*0.32)
+          // and shrink it so the glyph no longer overlaps the mode-switch buttons.
+          const cY = height * 0.58;
+
           // Draw school kanji-grid boundary
           ctx.fillStyle = "rgba(255, 255, 255, 0.02)";
           ctx.strokeStyle = "rgba(255, 255, 255, 0.06)";
           ctx.lineWidth = 2;
           ctx.lineJoin = "round";
-          const boxSize = height * 0.52;
+          const boxSize = height * 0.4;
           ctx.beginPath();
           ctx.roundRect(cX - boxSize / 2, cY - boxSize / 2, boxSize, boxSize, 16);
           ctx.fill();
@@ -875,7 +877,7 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
           ctx.stroke();
           
           // Render character outline guide
-          ctx.font = `bold ${height * 0.44}px Outfit, 'Hiragino Kaku Gothic ProN', 'Yu Gothic', sans-serif`;
+          ctx.font = `bold ${height * 0.34}px Outfit, 'Hiragino Kaku Gothic ProN', 'Yu Gothic', sans-serif`;
           ctx.textAlign = "center";
           ctx.textBaseline = "middle";
           
@@ -1427,10 +1429,10 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
             AR KANJI WRITING / 空中漢字かきかた
           </div>
           <div style={{
-            fontSize: 22,
-            fontWeight: 700,
+            fontSize: 40,
+            fontWeight: 800,
             color: "#ffffff",
-            textShadow: "0 0 10px rgba(255, 255, 255, 0.2)"
+            textShadow: "0 0 14px rgba(255, 255, 255, 0.3)"
           }}>
             {(() => {
               const activeKanji = kanjiList.find(k => k.char === kanjiChar) || kanjiList[0];
@@ -1438,15 +1440,15 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
             })()}
           </div>
           <div style={{
-            fontSize: 13,
+            fontSize: 16,
             color: "var(--text-secondary)",
-            marginTop: 4,
+            marginTop: 6,
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
             gap: 4
           }}>
-            <div>
+            <div style={{ fontSize: 18, fontWeight: 600 }}>
               {kanjiHand === "right" ? "右手" : "左手"}でなぞって描こう！
             </div>
             

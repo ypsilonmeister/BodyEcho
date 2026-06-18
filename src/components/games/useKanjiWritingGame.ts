@@ -365,7 +365,7 @@ export const useKanjiWritingGame = ({
     if (kanjiStateRef.current === "success") {
       if (Math.random() < 0.25) {
         const cX = width / 2;
-        const cY = height * 0.48;
+        const cY = height * 0.58;
         particlesRef.current.push({
           x: cX + (Math.random() - 0.5) * height * 0.45,
           y: cY + (Math.random() - 0.5) * height * 0.45,
@@ -380,7 +380,7 @@ export const useKanjiWritingGame = ({
 
       ctx.save();
       const cX = width / 2;
-      const cY = height * 0.48;
+      const cY = height * 0.58;
       ctx.font = `bold ${height * 0.048}px Outfit, 'Hiragino Kaku Gothic ProN', 'Yu Gothic', sans-serif`;
       ctx.fillStyle = "#ffb700";
       ctx.textAlign = "center";
