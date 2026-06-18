@@ -87,10 +87,14 @@ function App() {
     };
 
     window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("touchstart", handleMouseMove);
+    window.addEventListener("pointerdown", handleMouseMove);
     handleMouseMove(); // Start timer
 
     return () => {
       window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("touchstart", handleMouseMove);
+      window.removeEventListener("pointerdown", handleMouseMove);
       if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
     };
   }, []);

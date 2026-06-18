@@ -134,7 +134,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
 
         {/* Model Complexity Selection */}
         <div className="settings-group">
-          <label><Cpu size={14} style={{ marginRight: 6, verticalAlign: "middle" }} /> Pose Accuracy</label>
+          <label><Cpu size={14} style={{ marginRight: 6, verticalAlign: "middle" }} /> せいど (Pose Accuracy)</label>
           <select
             value={complexity}
             onChange={(e) => setComplexity(e.target.value as PoseComplexity)}
@@ -154,7 +154,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
 
         {/* Theme Settings */}
         <div className="settings-group">
-          <label><Sparkles size={14} style={{ marginRight: 6, verticalAlign: "middle" }} /> Visual Theme</label>
+          <label><Sparkles size={14} style={{ marginRight: 6, verticalAlign: "middle" }} /> テーマ (Visual Theme)</label>
           <div className="theme-selector">
             <button
               onClick={() => setTheme("cyberpunk")}
@@ -186,7 +186,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
         {/* Movement Trails Toggle */}
         <div className="settings-group">
           <div className="toggle-container" onClick={() => setShowTrails(!showTrails)}>
-            <span className="toggle-label">Movement Trails</span>
+            <span className="toggle-label">うごきのこん跡 (Movement Trails)</span>
             <label className="switch">
               <input
                 type="checkbox"
@@ -201,7 +201,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
         {/* Game Mode Toggle */}
         <div className="settings-group">
           <div className="toggle-container" onClick={() => setGameMode(!gameMode)}>
-            <span className="toggle-label">Play Pose Game</span>
+            <span className="toggle-label">ゲームモード (Game Mode)</span>
             <label className="switch">
               <input
                 type="checkbox"
@@ -346,7 +346,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
         {/* Stretch Highlights Toggle */}
         <div className="settings-group">
           <div className="toggle-container" onClick={() => setStretchHighlights(!stretchHighlights)}>
-            <span className="toggle-label">Extension Highlights</span>
+            <span className="toggle-label">のばすと光る (Extension Highlights)</span>
             <label className="switch">
               <input
                 type="checkbox"
@@ -360,7 +360,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
 
         {/* Auto-calibration Mode Toggle */}
         <div className="settings-group">
-          <label><Accessibility size={14} style={{ marginRight: 6, verticalAlign: "middle" }} /> Calibration Mode</label>
+          <label><Accessibility size={14} style={{ marginRight: 6, verticalAlign: "middle" }} /> よみとりモード (Calibration Mode)</label>
           <select
             value={autoCalibMode}
             onChange={(e) => setAutoCalibMode(e.target.value as "full" | "upper")}
@@ -373,7 +373,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
 
         {/* Camera Feed Mode selector */}
         <div className="settings-group">
-          <label><Camera size={14} style={{ marginRight: 6, verticalAlign: "middle" }} /> Camera Background</label>
+          <label><Camera size={14} style={{ marginRight: 6, verticalAlign: "middle" }} /> カメラのはいけい (Camera Background)</label>
           <select
             value={cameraBackground}
             onChange={(e) => setCameraBackground(e.target.value as "calibration" | "always" | "never")}
@@ -388,7 +388,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
         {/* Camera Device Switcher selector */}
         {devices.length > 0 && (
           <div className="settings-group">
-            <label><Camera size={14} style={{ marginRight: 6, verticalAlign: "middle" }} /> Active Camera</label>
+            <label><Camera size={14} style={{ marginRight: 6, verticalAlign: "middle" }} /> つかうカメラ (Active Camera)</label>
             <select
               value={selectedDeviceId}
               onChange={(e) => setSelectedDeviceId(e.target.value)}
@@ -405,7 +405,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
 
         {/* Audio Volume Controls */}
         <div className="settings-group">
-          <label>Sound Cues</label>
+          <label>おと (Sound Cues)</label>
           <div className="volume-slider-container">
             <button onClick={toggleMute} className="volume-btn">
               {isMuted || volume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}

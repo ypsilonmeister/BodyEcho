@@ -20,7 +20,7 @@
 
 ## 🛠️ 技術スタック (Technical Stack)
 
-* **推論エンジン**: Google MediaPipe Pose (JavaScript / WebAssembly)
+* **推論エンジン**: Google MediaPipe Tasks Vision (PoseLandmarker / WebAssembly)
 * **UI フレームワーク**: React + TypeScript + Vite
 * **描画エンジン**: HTML5 `<canvas>` API (2D Context) with Retina/DPR Scaling
 * **スタイリング**: Vanilla CSS (CSS Variables + Glassmorphism)

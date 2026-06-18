@@ -211,10 +211,13 @@ export const useKanjiWritingGame = ({
     const gesture = getHandGesture(wrist, index, pinky, shoulderWidth);
     setDetectedGesture(gesture);
 
+    // Tracking point: primary is index finger, wrist is backup
+    const trackingPt = index && index.visibility > 0.5 ? index : wrist;
+
     // Determine drawing condition
     let shouldDraw = false;
     const trigger = kanjiTriggerGestureRef.current;
-    if (wrist && wrist.visibility > 0.65 && kanjiStateRef.current === "writing") {
+    if (trackingPt && trackingPt.visibility > 0.4 && kanjiStateRef.current === "writing") {
       if (trigger === "always") {
         shouldDraw = true;
       } else if (trigger === "fist") {
@@ -223,9 +226,6 @@ export const useKanjiWritingGame = ({
         shouldDraw = gesture === "pointing";
       }
     }
-
-    // Tracking point: primary is index finger, wrist is backup
-    const trackingPt = index && index.visibility > 0.65 ? index : wrist;
 
     if (shouldDraw && trackingPt) {
       const currentPoint = { x: trackingPt.x, y: trackingPt.y };
