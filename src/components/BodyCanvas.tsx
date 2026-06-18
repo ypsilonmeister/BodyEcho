@@ -10,7 +10,7 @@ import {
   updateAndDrawParticles,
   updateAndDrawRipples,
 } from "../utils/canvasDraw";
-import type { Particle, Ripple, Point2D } from "../types";
+import type { Particle, Ripple, Point2D, ThemeColors, Landmark } from "../types";
 
 interface BodyCanvasProps {
   landmarks: any[] | null;
@@ -307,7 +307,7 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
 
 
   // Helper: Spawn fireworks particles on clear
-  const triggerFireworks = (centerX: number, centerY: number, colors: any) => {
+  const triggerFireworks = (centerX: number, centerY: number, colors: ThemeColors) => {
     const particles = particlesRef.current;
     const palette = [colors.right, colors.left, "#ffffff", "#ffb700", "#00ffaa"];
     
@@ -673,7 +673,7 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
           progress: number,
           labelEn: string,
           labelJa: string,
-          colors: any
+          colors: ThemeColors
         ) => {
           ctx.save();
 
@@ -773,7 +773,7 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
         if (stretchHighlightsRef.current) {
           const checkStretch = (
             angle: number,
-            jointPt: any,
+            jointPt: Landmark | null,
             sideKey: "lElbow" | "rElbow" | "lKnee" | "rKnee",
             color: string
           ) => {
@@ -891,7 +891,7 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
         }
 
         // Draw Left Half (Magenta)
-        const drawBoneWithHighlight = (p1: any, p2: any, angleCheck: boolean, color: string, glow: string) => {
+        const drawBoneWithHighlight = (p1: Landmark | null, p2: Landmark | null, angleCheck: boolean, color: string, glow: string) => {
           if (!p1 || !p2) return;
           const currentBoneWidth = angleCheck && stretchHighlightsRef.current ? boneWidth * 1.8 : boneWidth;
           const currentColor = angleCheck && stretchHighlightsRef.current ? "#ffffff" : color;
@@ -1019,7 +1019,7 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
   };
 
   // Draw extremity trails ribbons with velocity feedback
-  const drawTrails = (ctx: CanvasRenderingContext2D, colors: any, height: number) => {
+  const drawTrails = (ctx: CanvasRenderingContext2D, colors: ThemeColors, height: number) => {
     const drawSingleTrail = (trail: Point2D[], speed: number, color: string, glowColor: string) => {
       if (trail.length < 2) return;
 
@@ -1267,7 +1267,7 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
     ctx.restore();
   };
 
-  const drawResetRing = (ctx: CanvasRenderingContext2D, nose: any, height: number) => {
+  const drawResetRing = (ctx: CanvasRenderingContext2D, nose: Landmark, height: number) => {
     ctx.save();
     ctx.beginPath();
     ctx.arc(nose.x, nose.y, height * 0.05, 0, 2 * Math.PI);
