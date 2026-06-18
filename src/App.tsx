@@ -366,6 +366,7 @@ function App() {
           gameMode={gameMode}
           setGameMode={setGameMode}
           gameType={gameType}
+          setGameType={setGameType}
           traceHand={traceHand}
           tracePathType={tracePathType}
           traceSpeed={traceSpeed}

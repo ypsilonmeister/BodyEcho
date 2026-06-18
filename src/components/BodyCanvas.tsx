@@ -40,6 +40,7 @@ interface BodyCanvasProps {
   gameMode: boolean;
   setGameMode: (val: boolean) => void;
   gameType: "pose" | "trace" | "kanji";
+  setGameType: (val: "pose" | "trace" | "kanji") => void;
   traceHand: "left" | "right";
   tracePathType: "horizontal" | "vertical" | "sine" | "circle";
   traceSpeed: "slow" | "medium" | "fast";
@@ -92,6 +93,7 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
   gameMode,
   setGameMode,
   gameType,
+  setGameType,
   traceHand,
   tracePathType,
   traceSpeed,
@@ -174,7 +176,11 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
     kanjiTriggerGesture
   });
 
-  const btnHoverProgressRef = useRef<number>(0); // 0 to 100 for Air Button
+  const btnHoverProgressesRef = useRef({
+    pose: 0,
+    trace: 0,
+    kanji: 0,
+  });
 
   // Persistent smoothed joints array (for 33 landmarks)
   const smoothedJointsRef = useRef<Array<{ x: number; y: number; z: number; visibility: number } | null>>(
@@ -192,6 +198,7 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
   const gameModeRef = useRef(gameMode);
   const setGameModeRef = useRef(setGameMode);
   const gameTypeRef = useRef(gameType);
+  const setGameTypeRef = useRef(setGameType);
   const traceHandRef = useRef(traceHand);
   const tracePathTypeRef = useRef(tracePathType);
   const traceSpeedRef = useRef(traceSpeed);
@@ -212,6 +219,7 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
     gameModeRef.current = gameMode;
     setGameModeRef.current = setGameMode;
     gameTypeRef.current = gameType;
+    setGameTypeRef.current = setGameType;
     traceHandRef.current = traceHand;
     tracePathTypeRef.current = tracePathType;
     traceSpeedRef.current = traceSpeed;
@@ -220,7 +228,7 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
     setCalibratedRef.current = setCalibrated;
     kanjiCharRef.current = kanjiChar;
     kanjiHandRef.current = kanjiHand;
-  }, [landmarks, calibrated, showTrails, theme, autoCalibMode, videoElement, cameraBackground, gameMode, setGameMode, gameType, traceHand, tracePathType, traceSpeed, stretchHighlights, onResetTriggered, setCalibrated, kanjiChar, kanjiHand]);
+  }, [landmarks, calibrated, showTrails, theme, autoCalibMode, videoElement, cameraBackground, gameMode, setGameMode, gameType, setGameType, traceHand, tracePathType, traceSpeed, stretchHighlights, onResetTriggered, setCalibrated, kanjiChar, kanjiHand]);
 
   // Track calibration toggle state
   const prevCalibrated = useRef<boolean>(calibrated);
@@ -233,7 +241,11 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
     rightAnkleTrail.current = [];
     ripplesRef.current = [];
     particlesRef.current = [];
-    btnHoverProgressRef.current = 0;
+    btnHoverProgressesRef.current = {
+      pose: 0,
+      trace: 0,
+      kanji: 0
+    };
     resetPoseGame();
     resetTraceGame();
     clearKanjiCanvas();
@@ -467,127 +479,227 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
           rThumb: getCanvasPoint(22),
         };
 
-        // Air Button (Hover Trigger) Logic
-        const btnX = width * 0.88;
-        const btnY = height * 0.22;
-        const btnRadius = height * 0.055;
-        let isHovered = false;
-
-        if (joints.lWrist && joints.lWrist.visibility > 0.65) {
-          const distL = Math.hypot(joints.lWrist.x - btnX, joints.lWrist.y - btnY);
-          if (distL < btnRadius * 1.5) {
-            isHovered = true;
+        // Dynamic Comfort Reach Y-Coordinate Calculation
+        let btnY = height * 0.14; // Default screen-relative fallback
+        const lSh = joints.lShoulder;
+        const rSh = joints.rShoulder;
+        
+        if (lSh && rSh && lSh.visibility > 0.5 && rSh.visibility > 0.5) {
+          const yShoulder = (lSh.y + rSh.y) / 2;
+          
+          // Calculate average arm length from shoulder to elbow to wrist
+          const lEl = joints.lElbow;
+          const lWr = joints.lWrist;
+          const rEl = joints.rElbow;
+          const rWr = joints.rWrist;
+          
+          let armLength = 0;
+          let armCount = 0;
+          if (lEl && lWr && lEl.visibility > 0.5 && lWr.visibility > 0.5) {
+            armLength += Math.hypot(lSh.x - lEl.x, lSh.y - lEl.y) +
+                        Math.hypot(lEl.x - lWr.x, lEl.y - lWr.y);
+            armCount++;
           }
+          if (rEl && rWr && rEl.visibility > 0.5 && rWr.visibility > 0.5) {
+            armLength += Math.hypot(rSh.x - rEl.x, rSh.y - rEl.y) +
+                        Math.hypot(rEl.x - rWr.x, rEl.y - rWr.y);
+            armCount++;
+          }
+          
+          if (armCount > 0) {
+            armLength /= armCount;
+          } else {
+            // Proxy arm length as 1.4 * shoulder width
+            const shoulderWidth = Math.hypot(lSh.x - rSh.x, lSh.y - rSh.y);
+            armLength = shoulderWidth * 1.4;
+          }
+          
+          // Comfort reach Y zone: 0.75 * armLength above shoulders
+          const calculatedY = yShoulder - armLength * 0.75;
+          // Clamp btnY between height * 0.08 and height * 0.22 so they stay on screen
+          btnY = Math.max(height * 0.08, Math.min(height * 0.22, calculatedY));
         }
-        if (!isHovered && joints.rWrist && joints.rWrist.visibility > 0.65) {
-          const distR = Math.hypot(joints.rWrist.x - btnX, joints.rWrist.y - btnY);
-          if (distR < btnRadius * 1.5) {
-            isHovered = true;
+
+        const btnRadius = height * 0.045;
+        const collisionRadius = btnRadius * 1.6;
+
+        // Pointer checking helpers (Index finger as primary, Wrist as fallback)
+        const getHandPointer = (side: "l" | "r") => {
+          const wrist = side === "l" ? joints.lWrist : joints.rWrist;
+          const index = side === "l" ? joints.lIndex : joints.rIndex;
+          return (index && index.visibility > 0.6) ? index : wrist;
+        };
+
+        const lPointer = getHandPointer("l");
+        const rPointer = getHandPointer("r");
+
+        const checkButtonHover = (bx: number, by: number, radius: number) => {
+          if (lPointer && lPointer.visibility > 0.65) {
+            if (Math.hypot(lPointer.x - bx, lPointer.y - by) < radius) {
+              return { hovered: true, pointer: lPointer };
+            }
           }
-        }
-
-        if (isHovered) {
-          // Increment progress (~1.1 seconds hold time at 60fps)
-          btnHoverProgressRef.current = Math.min(100, btnHoverProgressRef.current + 1.5);
-
-          // Add visual particles around the active wrist for feedback
-          const activeWrist = (joints.lWrist && joints.lWrist.visibility > 0.65 && Math.hypot(joints.lWrist.x - btnX, joints.lWrist.y - btnY) < btnRadius * 1.5)
-            ? joints.lWrist
-            : joints.rWrist;
-
-          if (activeWrist && Math.random() < 0.4) {
-            particlesRef.current.push({
-              x: activeWrist.x,
-              y: activeWrist.y,
-              vx: (Math.random() - 0.5) * 3,
-              vy: (Math.random() - 0.5) * 3,
-              color: "#ffb700",
-              alpha: 0.9,
-              size: Math.random() * 3 + 1.5,
-              life: 0.04
-            });
+          if (rPointer && rPointer.visibility > 0.65) {
+            if (Math.hypot(rPointer.x - bx, rPointer.y - by) < radius) {
+              return { hovered: true, pointer: rPointer };
+            }
           }
+          return { hovered: false, pointer: null };
+        };
 
-          if (btnHoverProgressRef.current >= 100) {
-            // Trigger! Toggle gameMode
-            audioSynth.playGoalAchieved();
+        // Three Switch Buttons Configuration
+        const buttonsConfig = [
+          {
+            id: "pose" as const,
+            x: width * 0.28,
+            labelEn: "POSE",
+            labelJa: "ポーズあそび",
+            isActive: gameModeRef.current && gameTypeRef.current === "pose",
+            action: () => {
+              const currentlyActive = gameModeRef.current && gameTypeRef.current === "pose";
+              setGameModeRef.current(!currentlyActive);
+              setGameTypeRef.current("pose");
+            }
+          },
+          {
+            id: "trace" as const,
+            x: width * 0.50,
+            labelEn: "TRACE",
+            labelJa: "イライラぼう",
+            isActive: gameModeRef.current && gameTypeRef.current === "trace",
+            action: () => {
+              const currentlyActive = gameModeRef.current && gameTypeRef.current === "trace";
+              setGameModeRef.current(!currentlyActive);
+              setGameTypeRef.current("trace");
+            }
+          },
+          {
+            id: "kanji" as const,
+            x: width * 0.72,
+            labelEn: "KANJI",
+            labelJa: "かんじかき",
+            isActive: gameModeRef.current && gameTypeRef.current === "kanji",
+            action: () => {
+              const currentlyActive = gameModeRef.current && gameTypeRef.current === "kanji";
+              setGameModeRef.current(!currentlyActive);
+              setGameTypeRef.current("kanji");
+            }
+          }
+        ];
+
+        // Update Button Progresses and Check Trigger Collisions
+        buttonsConfig.forEach((btn) => {
+          const hoverState = checkButtonHover(btn.x, btnY, collisionRadius);
+          
+          if (hoverState.hovered) {
+            btnHoverProgressesRef.current[btn.id] = Math.min(100, btnHoverProgressesRef.current[btn.id] + 1.8);
             
-            // Add a burst of particles at the button center
-            triggerFireworks(btnX, btnY, colors);
+            // Add sparkles feedback around the pointer
+            const ptr = hoverState.pointer;
+            if (ptr && Math.random() < 0.4) {
+              particlesRef.current.push({
+                x: ptr.x,
+                y: ptr.y,
+                vx: (Math.random() - 0.5) * 3,
+                vy: (Math.random() - 0.5) * 3,
+                color: "#ffb700",
+                alpha: 0.9,
+                size: Math.random() * 2.5 + 1.5,
+                life: 0.04
+              });
+            }
 
-            setGameModeRef.current(!gameModeRef.current);
-            btnHoverProgressRef.current = 0; // reset
+            if (btnHoverProgressesRef.current[btn.id] >= 100) {
+              audioSynth.playGoalAchieved();
+              triggerFireworks(btn.x, btnY, colors);
+              btn.action();
+              btnHoverProgressesRef.current[btn.id] = 0; // reset
+            }
+          } else {
+            btnHoverProgressesRef.current[btn.id] = Math.max(0, btnHoverProgressesRef.current[btn.id] - 4);
           }
-        } else {
-          // Slowly decay progress when not hovered
-          btnHoverProgressRef.current = Math.max(0, btnHoverProgressRef.current - 4);
-        }
+        });
 
-        // Helper for drawing Air Button
+        // Drawing helper for circular AR buttons
         const drawAirButton = (
           ctx: CanvasRenderingContext2D,
           bx: number,
           by: number,
           br: number,
-          hovered: boolean,
+          isActive: boolean,
           progress: number,
+          labelEn: string,
+          labelJa: string,
           colors: any
         ) => {
           ctx.save();
 
+          const isHovered = progress > 0;
           const colorActive = "#ffb700";
-          const colorNormal = colors.right;
-          const colorGlow = hovered ? "rgba(255, 183, 0, 0.4)" : colors.rightGlow;
-          const btnColor = hovered ? colorActive : colorNormal;
-
-          // Outer glowing ring
+          
+          const ringColor = isHovered ? colorActive : (isActive ? colors.left : "rgba(255, 255, 255, 0.12)");
+          const fillColor = isHovered ? "rgba(255, 183, 0, 0.12)" : (isActive ? "rgba(255, 0, 127, 0.22)" : "rgba(0, 0, 0, 0.2)");
+          const textColor = isHovered ? colorActive : (isActive ? "#ffffff" : colors.right);
+          
+          // Outer ring
           ctx.beginPath();
           ctx.arc(bx, by, br, 0, 2 * Math.PI);
-          ctx.strokeStyle = hovered ? "rgba(255, 183, 0, 0.2)" : "rgba(255, 255, 255, 0.08)";
-          ctx.lineWidth = 4;
-          ctx.shadowBlur = hovered ? 12 : 0;
-          ctx.shadowColor = colorGlow;
+          ctx.strokeStyle = ringColor;
+          ctx.lineWidth = isActive && !isHovered ? 4 : 2;
+          if (!isActive && !isHovered) {
+            ctx.setLineDash([4, 4]); // dashed ring for inactive buttons
+          }
+          ctx.shadowBlur = isHovered || isActive ? 12 : 0;
+          ctx.shadowColor = isHovered ? "rgba(255, 183, 0, 0.5)" : (isActive ? colors.leftGlow : "transparent");
           ctx.stroke();
+          ctx.setLineDash([]); // reset
 
           // Progress Arc
           if (progress > 0) {
             ctx.beginPath();
             ctx.arc(bx, by, br, -0.5 * Math.PI, (-0.5 + 2 * (progress / 100)) * Math.PI);
             ctx.strokeStyle = colorActive;
-            ctx.lineWidth = 5;
+            ctx.lineWidth = 4.5;
             ctx.shadowBlur = 10;
             ctx.shadowColor = "rgba(255, 183, 0, 0.6)";
             ctx.stroke();
           }
 
-          // Inner solid circle
+          // Inner filled circle
           ctx.beginPath();
           ctx.arc(bx, by, br * 0.85, 0, 2 * Math.PI);
-          ctx.fillStyle = hovered ? "rgba(255, 183, 0, 0.15)" : "rgba(0, 0, 0, 0.25)";
+          ctx.fillStyle = fillColor;
           ctx.fill();
 
-          // Text Label
-          const isGameOn = gameModeRef.current;
-          ctx.font = `bold ${br * 0.3}px var(--font-sans)`;
-          ctx.fillStyle = btnColor;
+          // Labels rendering
           ctx.textAlign = "center";
           ctx.textBaseline = "middle";
           
-          if (isGameOn) {
-            ctx.fillText("EXIT", bx, by - br * 0.15);
-            ctx.font = `bold ${br * 0.22}px var(--font-sans)`;
-            ctx.fillText("おわる", bx, by + br * 0.2);
-          } else {
-            ctx.fillText("PLAY", bx, by - br * 0.15);
-            ctx.font = `bold ${br * 0.22}px var(--font-sans)`;
-            ctx.fillText("あそぶ", bx, by + br * 0.2);
-          }
+          ctx.font = `bold ${br * 0.28}px var(--font-sans)`;
+          ctx.fillStyle = textColor;
+          ctx.fillText(labelEn, bx, by - br * 0.15);
+          
+          ctx.font = `bold ${br * 0.2}px var(--font-sans)`;
+          ctx.fillStyle = isHovered ? colorActive : (isActive ? "#ffffff" : "var(--text-secondary)");
+          ctx.fillText(labelJa, bx, by + br * 0.2);
 
           ctx.restore();
         };
 
-        // Draw Air Button
-        drawAirButton(ctx, btnX, btnY, btnRadius, isHovered, btnHoverProgressRef.current, colors);
+        // Draw the 3 Air Buttons
+        buttonsConfig.forEach((btn) => {
+          drawAirButton(
+            ctx,
+            btn.x,
+            btnY,
+            btnRadius,
+            btn.isActive,
+            btnHoverProgressesRef.current[btn.id],
+            btn.labelEn,
+            btn.labelJa,
+            colors
+          );
+        });
 
         // 1. Calculate Joint Angles
         const angles = {
