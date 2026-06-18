@@ -354,6 +354,7 @@ function App() {
           videoElement={videoRef.current}
           cameraBackground={cameraBackground}
           gameMode={gameMode}
+          setGameMode={setGameMode}
           stretchHighlights={stretchHighlights}
         />
       )}

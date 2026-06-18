@@ -12,6 +12,7 @@ interface BodyCanvasProps {
   videoElement: HTMLVideoElement | null;
   cameraBackground: "calibration" | "always" | "never";
   gameMode: boolean;
+  setGameMode: (val: boolean) => void;
   stretchHighlights: boolean;
 }
 
@@ -55,6 +56,7 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
   videoElement,
   cameraBackground,
   gameMode,
+  setGameMode,
   stretchHighlights,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -101,6 +103,7 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
   const matchProgressRef = useRef<number>(0); // 0 to 100
   const isMatchingRef = useRef<boolean>(false);
   const matchStartRef = useRef<number>(0);
+  const btnHoverProgressRef = useRef<number>(0); // 0 to 100 for Air Button
 
   // Persistent smoothed joints array (for 33 landmarks)
   const smoothedJointsRef = useRef<Array<{ x: number; y: number; z: number; visibility: number } | null>>(
@@ -116,6 +119,7 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
   const videoElementRef = useRef(videoElement);
   const cameraBackgroundRef = useRef(cameraBackground);
   const gameModeRef = useRef(gameMode);
+  const setGameModeRef = useRef(setGameMode);
   const stretchHighlightsRef = useRef(stretchHighlights);
   const activePoseIndexRef = useRef(activePoseIndex);
   const onResetTriggeredRef = useRef(onResetTriggered);
@@ -130,11 +134,12 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
     videoElementRef.current = videoElement;
     cameraBackgroundRef.current = cameraBackground;
     gameModeRef.current = gameMode;
+    setGameModeRef.current = setGameMode;
     stretchHighlightsRef.current = stretchHighlights;
     activePoseIndexRef.current = activePoseIndex;
     onResetTriggeredRef.current = onResetTriggered;
     setCalibratedRef.current = setCalibrated;
-  }, [landmarks, calibrated, showTrails, theme, autoCalibMode, videoElement, cameraBackground, gameMode, stretchHighlights, activePoseIndex, onResetTriggered, setCalibrated]);
+  }, [landmarks, calibrated, showTrails, theme, autoCalibMode, videoElement, cameraBackground, gameMode, setGameMode, stretchHighlights, activePoseIndex, onResetTriggered, setCalibrated]);
 
   // Track calibration toggle state
   const prevCalibrated = useRef<boolean>(calibrated);
@@ -148,6 +153,7 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
     ripplesRef.current = [];
     particlesRef.current = [];
     matchProgressRef.current = 0;
+    btnHoverProgressRef.current = 0;
     isMatchingRef.current = false;
   };
 
@@ -632,6 +638,128 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
           lAnkle: getCanvasPoint(27),
           rAnkle: getCanvasPoint(28),
         };
+
+        // Air Button (Hover Trigger) Logic
+        const btnX = width * 0.88;
+        const btnY = height * 0.22;
+        const btnRadius = height * 0.055;
+        let isHovered = false;
+
+        if (joints.lWrist && joints.lWrist.visibility > 0.65) {
+          const distL = Math.hypot(joints.lWrist.x - btnX, joints.lWrist.y - btnY);
+          if (distL < btnRadius * 1.5) {
+            isHovered = true;
+          }
+        }
+        if (!isHovered && joints.rWrist && joints.rWrist.visibility > 0.65) {
+          const distR = Math.hypot(joints.rWrist.x - btnX, joints.rWrist.y - btnY);
+          if (distR < btnRadius * 1.5) {
+            isHovered = true;
+          }
+        }
+
+        if (isHovered) {
+          // Increment progress (~1.1 seconds hold time at 60fps)
+          btnHoverProgressRef.current = Math.min(100, btnHoverProgressRef.current + 1.5);
+
+          // Add visual particles around the active wrist for feedback
+          const activeWrist = (joints.lWrist && joints.lWrist.visibility > 0.65 && Math.hypot(joints.lWrist.x - btnX, joints.lWrist.y - btnY) < btnRadius * 1.5)
+            ? joints.lWrist
+            : joints.rWrist;
+
+          if (activeWrist && Math.random() < 0.4) {
+            particlesRef.current.push({
+              x: activeWrist.x,
+              y: activeWrist.y,
+              vx: (Math.random() - 0.5) * 3,
+              vy: (Math.random() - 0.5) * 3,
+              color: "#ffb700",
+              alpha: 0.9,
+              size: Math.random() * 3 + 1.5,
+              life: 0.04
+            });
+          }
+
+          if (btnHoverProgressRef.current >= 100) {
+            // Trigger! Toggle gameMode
+            audioSynth.playGoalAchieved();
+            
+            // Add a burst of particles at the button center
+            triggerFireworks(btnX, btnY, colors);
+
+            setGameModeRef.current(!gameModeRef.current);
+            btnHoverProgressRef.current = 0; // reset
+          }
+        } else {
+          // Slowly decay progress when not hovered
+          btnHoverProgressRef.current = Math.max(0, btnHoverProgressRef.current - 4);
+        }
+
+        // Helper for drawing Air Button
+        const drawAirButton = (
+          ctx: CanvasRenderingContext2D,
+          bx: number,
+          by: number,
+          br: number,
+          hovered: boolean,
+          progress: number,
+          colors: any
+        ) => {
+          ctx.save();
+
+          const colorActive = "#ffb700";
+          const colorNormal = colors.right;
+          const colorGlow = hovered ? "rgba(255, 183, 0, 0.4)" : colors.rightGlow;
+          const btnColor = hovered ? colorActive : colorNormal;
+
+          // Outer glowing ring
+          ctx.beginPath();
+          ctx.arc(bx, by, br, 0, 2 * Math.PI);
+          ctx.strokeStyle = hovered ? "rgba(255, 183, 0, 0.2)" : "rgba(255, 255, 255, 0.08)";
+          ctx.lineWidth = 4;
+          ctx.shadowBlur = hovered ? 12 : 0;
+          ctx.shadowColor = colorGlow;
+          ctx.stroke();
+
+          // Progress Arc
+          if (progress > 0) {
+            ctx.beginPath();
+            ctx.arc(bx, by, br, -0.5 * Math.PI, (-0.5 + 2 * (progress / 100)) * Math.PI);
+            ctx.strokeStyle = colorActive;
+            ctx.lineWidth = 5;
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = "rgba(255, 183, 0, 0.6)";
+            ctx.stroke();
+          }
+
+          // Inner solid circle
+          ctx.beginPath();
+          ctx.arc(bx, by, br * 0.85, 0, 2 * Math.PI);
+          ctx.fillStyle = hovered ? "rgba(255, 183, 0, 0.15)" : "rgba(0, 0, 0, 0.25)";
+          ctx.fill();
+
+          // Text Label
+          const isGameOn = gameModeRef.current;
+          ctx.font = `bold ${br * 0.3}px var(--font-sans)`;
+          ctx.fillStyle = btnColor;
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          
+          if (isGameOn) {
+            ctx.fillText("EXIT", bx, by - br * 0.15);
+            ctx.font = `bold ${br * 0.22}px var(--font-sans)`;
+            ctx.fillText("おわる", bx, by + br * 0.2);
+          } else {
+            ctx.fillText("PLAY", bx, by - br * 0.15);
+            ctx.font = `bold ${br * 0.22}px var(--font-sans)`;
+            ctx.fillText("あそぶ", bx, by + br * 0.2);
+          }
+
+          ctx.restore();
+        };
+
+        // Draw Air Button
+        drawAirButton(ctx, btnX, btnY, btnRadius, isHovered, btnHoverProgressRef.current, colors);
 
         // 1. Calculate Joint Angles
         const angles = {
