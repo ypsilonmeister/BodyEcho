@@ -59,6 +59,7 @@ interface UseKanjiWritingGameProps {
   kanjiChar: string;
   kanjiBrushStyle: "neon" | "flame" | "rainbow";
   kanjiTriggerGesture: "always" | "fist" | "index";
+  setKanjiChar?: (char: string) => void;
 }
 
 export const useKanjiWritingGame = ({
@@ -69,7 +70,9 @@ export const useKanjiWritingGame = ({
   kanjiChar,
   kanjiBrushStyle,
   kanjiTriggerGesture,
+  setKanjiChar,
 }: UseKanjiWritingGameProps) => {
+  const [kanjiState, setKanjiState] = useState<"writing" | "success">("writing");
   const strokesRef = useRef<Point2D[][]>([]);
   const currentStrokeRef = useRef<Point2D[]>([]);
   const isDrawingRef = useRef<boolean>(false);
@@ -81,6 +84,7 @@ export const useKanjiWritingGame = ({
   const kanjiCharRef = useRef(kanjiChar);
   const kanjiBrushStyleRef = useRef(kanjiBrushStyle);
   const kanjiTriggerGestureRef = useRef(kanjiTriggerGesture);
+  const kanjiStateRef = useRef<"writing" | "success">("writing");
 
   useEffect(() => {
     kanjiHandRef.current = kanjiHand;
@@ -88,6 +92,30 @@ export const useKanjiWritingGame = ({
     kanjiBrushStyleRef.current = kanjiBrushStyle;
     kanjiTriggerGestureRef.current = kanjiTriggerGesture;
   }, [kanjiHand, kanjiChar, kanjiBrushStyle, kanjiTriggerGesture]);
+
+  useEffect(() => {
+    kanjiStateRef.current = kanjiState;
+  }, [kanjiState]);
+
+  // Handle success duration and auto-advance
+  useEffect(() => {
+    if (kanjiState === "success") {
+      const timer = setTimeout(() => {
+        setKanjiState("writing");
+        clearCanvas();
+
+        const currentIndex = kanjiList.findIndex((k) => k.char === kanjiCharRef.current);
+        if (currentIndex !== -1) {
+          const nextIndex = (currentIndex + 1) % kanjiList.length;
+          const nextKanji = kanjiList[nextIndex].char;
+          if (setKanjiChar) {
+            setKanjiChar(nextKanji);
+          }
+        }
+      }, 3500);
+      return () => clearTimeout(timer);
+    }
+  }, [kanjiState, setKanjiChar]);
 
   // Audio setup on mode activation
   useEffect(() => {
@@ -186,7 +214,7 @@ export const useKanjiWritingGame = ({
     // Determine drawing condition
     let shouldDraw = false;
     const trigger = kanjiTriggerGestureRef.current;
-    if (wrist && wrist.visibility > 0.65) {
+    if (wrist && wrist.visibility > 0.65 && kanjiStateRef.current === "writing") {
       if (trigger === "always") {
         shouldDraw = true;
       } else if (trigger === "fist") {
@@ -260,7 +288,21 @@ export const useKanjiWritingGame = ({
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
 
-      if (brushStyle === "neon") {
+      if (kanjiStateRef.current === "success") {
+        // Render success gold pulse trace
+        const pulseWidth = (height * 0.0095) * (1 + 0.15 * Math.sin(Date.now() / 120));
+        ctx.beginPath();
+        ctx.moveTo(stroke[0].x, stroke[0].y);
+        for (let i = 1; i < stroke.length; i++) {
+          ctx.lineTo(stroke[i].x, stroke[i].y);
+        }
+        ctx.lineWidth = pulseWidth;
+        ctx.strokeStyle = "#ffb700";
+        ctx.shadowBlur = 24;
+        ctx.shadowColor = "rgba(255, 183, 0, 0.9)";
+        ctx.stroke();
+      }
+      else if (brushStyle === "neon") {
         ctx.beginPath();
         ctx.moveTo(stroke[0].x, stroke[0].y);
         for (let i = 1; i < stroke.length; i++) {
@@ -321,6 +363,36 @@ export const useKanjiWritingGame = ({
       ctx.restore();
     });
 
+    // 3.5 Spawn particles and render success message if in success state
+    if (kanjiStateRef.current === "success") {
+      if (Math.random() < 0.25) {
+        const cX = width / 2;
+        const cY = height * 0.48;
+        particlesRef.current.push({
+          x: cX + (Math.random() - 0.5) * height * 0.45,
+          y: cY + (Math.random() - 0.5) * height * 0.45,
+          vx: (Math.random() - 0.5) * 2.2,
+          vy: -Math.random() * 1.8 - 0.8, // drift upwards
+          color: "#ffb700",
+          alpha: 0.95,
+          size: Math.random() * 3.5 + 2,
+          life: 0.018,
+        });
+      }
+
+      ctx.save();
+      const cX = width / 2;
+      const cY = height * 0.48;
+      ctx.font = `bold ${height * 0.048}px Outfit, 'Hiragino Kaku Gothic ProN', 'Yu Gothic', sans-serif`;
+      ctx.fillStyle = "#ffb700";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.shadowBlur = 20;
+      ctx.shadowColor = "rgba(255, 183, 0, 0.7)";
+      ctx.fillText("たいへんよくできました！💮", cX, cY);
+      ctx.restore();
+    }
+
     // 4. Render Active Pointer Indicator
     if (trackingPt) {
       ctx.save();
@@ -344,9 +416,27 @@ export const useKanjiWritingGame = ({
     }
   };
 
+  const triggerSuccess = (
+    width: number,
+    height: number,
+    colors: any,
+    triggerFireworks: (centerX: number, centerY: number, colors: any) => void
+  ) => {
+    if (kanjiStateRef.current !== "writing") return;
+    setKanjiState("success");
+    audioSynth.playGoalAchieved();
+
+    // Trigger fireworks in multiple spots
+    triggerFireworks(width * 0.3, height * 0.4, colors);
+    triggerFireworks(width * 0.7, height * 0.4, colors);
+    triggerFireworks(width * 0.5, height * 0.3, colors);
+  };
+
   return {
     strokes: strokesRef.current,
     detectedGesture,
+    kanjiState,
+    triggerSuccess,
     isDrawing: isDrawingRef.current,
     clearCanvas,
     updateAndDrawKanjiGame,

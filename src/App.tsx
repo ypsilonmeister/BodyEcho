@@ -67,6 +67,13 @@ function App() {
     audioSynth.setMute(isMuted);
   }, [volume, isMuted]);
 
+  // Automatically close configuration panel when starting gameplay
+  useEffect(() => {
+    if (gameMode) {
+      setPanelOpen(false);
+    }
+  }, [gameMode]);
+
   // Handle auto-hiding floating gear button when mouse is idle (minimalist mode)
   useEffect(() => {
     const handleMouseMove = () => {
@@ -373,6 +380,7 @@ function App() {
           stretchHighlights={stretchHighlights}
           kanjiHand={kanjiHand}
           kanjiChar={kanjiChar}
+          setKanjiChar={setKanjiChar}
           kanjiBrushStyle={kanjiBrushStyle}
           kanjiTriggerGesture={kanjiTriggerGesture}
         />
@@ -450,7 +458,7 @@ function App() {
               </p>
               <div className="y-pose-indicator">
                 {gameMode && gameType === "kanji"
-                  ? "両手を近づけてパン！とたたくとクリアできるよ 👏"
+                  ? "「できた！」ボタンに手をあわせるとクリア！ 👏（両手をたたくと消せるよ）"
                   : "やり直すときは、両手をあたまの上にバンザイしてね（Yのポーズ）"}
               </div>
             </>

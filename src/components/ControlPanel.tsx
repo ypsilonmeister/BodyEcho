@@ -120,8 +120,8 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
         className={`settings-trigger ${isOpen ? "panel-open" : ""}`}
         onClick={() => setIsOpen(!isOpen)}
         style={{
-          opacity: isVisible || isOpen ? undefined : 0,
-          pointerEvents: isVisible || isOpen ? "auto" : "none",
+          opacity: (isVisible || isOpen) && !gameMode ? undefined : 0,
+          pointerEvents: (isVisible || isOpen) && !gameMode ? "auto" : "none",
         }}
         title="Settings"
       >

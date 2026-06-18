@@ -47,6 +47,7 @@ interface BodyCanvasProps {
   stretchHighlights: boolean;
   kanjiHand: "left" | "right";
   kanjiChar: string;
+  setKanjiChar: (val: string) => void;
   kanjiBrushStyle: "neon" | "flame" | "rainbow";
   kanjiTriggerGesture: "always" | "fist" | "index";
 }
@@ -100,6 +101,7 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
   stretchHighlights,
   kanjiHand,
   kanjiChar,
+  setKanjiChar,
   kanjiBrushStyle,
   kanjiTriggerGesture,
 }) => {
@@ -164,6 +166,8 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
 
   const {
     detectedGesture,
+    kanjiState,
+    triggerSuccess: triggerKanjiSuccess,
     clearCanvas: clearKanjiCanvas,
     updateAndDrawKanjiGame
   } = useKanjiWritingGame({
@@ -173,13 +177,16 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
     kanjiHand,
     kanjiChar,
     kanjiBrushStyle,
-    kanjiTriggerGesture
+    kanjiTriggerGesture,
+    setKanjiChar
   });
 
-  const btnHoverProgressesRef = useRef({
+  const btnHoverProgressesRef = useRef<Record<string, number>>({
     pose: 0,
     trace: 0,
     kanji: 0,
+    quit: 0,
+    done: 0,
   });
 
   // Persistent smoothed joints array (for 33 landmarks)
@@ -207,6 +214,7 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
   const setCalibratedRef = useRef(setCalibrated);
   const kanjiCharRef = useRef(kanjiChar);
   const kanjiHandRef = useRef(kanjiHand);
+  const setKanjiCharRef = useRef(setKanjiChar);
 
   useEffect(() => {
     landmarksRef.current = landmarks;
@@ -228,7 +236,8 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
     setCalibratedRef.current = setCalibrated;
     kanjiCharRef.current = kanjiChar;
     kanjiHandRef.current = kanjiHand;
-  }, [landmarks, calibrated, showTrails, theme, autoCalibMode, videoElement, cameraBackground, gameMode, setGameMode, gameType, setGameType, traceHand, tracePathType, traceSpeed, stretchHighlights, onResetTriggered, setCalibrated, kanjiChar, kanjiHand]);
+    setKanjiCharRef.current = setKanjiChar;
+  }, [landmarks, calibrated, showTrails, theme, autoCalibMode, videoElement, cameraBackground, gameMode, setGameMode, gameType, setGameType, traceHand, tracePathType, traceSpeed, stretchHighlights, onResetTriggered, setCalibrated, kanjiChar, kanjiHand, setKanjiChar]);
 
   // Track calibration toggle state
   const prevCalibrated = useRef<boolean>(calibrated);
@@ -547,45 +556,71 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
           return { hovered: false, pointer: null };
         };
 
-        // Three Switch Buttons Configuration
-        const buttonsConfig = [
-          {
-            id: "pose" as const,
-            x: width * 0.28,
-            labelEn: "POSE",
-            labelJa: "ポーズあそび",
-            isActive: gameModeRef.current && gameTypeRef.current === "pose",
-            action: () => {
-              const currentlyActive = gameModeRef.current && gameTypeRef.current === "pose";
-              setGameModeRef.current(!currentlyActive);
-              setGameTypeRef.current("pose");
+        // Switch Buttons Configuration (dynamic based on gameplay state)
+        const buttonsConfig = [];
+        if (!gameModeRef.current) {
+          buttonsConfig.push(
+            {
+              id: "pose" as const,
+              x: width * 0.28,
+              labelEn: "POSE",
+              labelJa: "ポーズあそび",
+              isActive: false,
+              action: () => {
+                setGameModeRef.current(true);
+                setGameTypeRef.current("pose");
+              }
+            },
+            {
+              id: "trace" as const,
+              x: width * 0.50,
+              labelEn: "TRACE",
+              labelJa: "イライラぼう",
+              isActive: false,
+              action: () => {
+                setGameModeRef.current(true);
+                setGameTypeRef.current("trace");
+              }
+            },
+            {
+              id: "kanji" as const,
+              x: width * 0.72,
+              labelEn: "KANJI",
+              labelJa: "かんじかき",
+              isActive: false,
+              action: () => {
+                setGameModeRef.current(true);
+                setGameTypeRef.current("kanji");
+              }
             }
-          },
-          {
-            id: "trace" as const,
-            x: width * 0.50,
-            labelEn: "TRACE",
-            labelJa: "イライラぼう",
-            isActive: gameModeRef.current && gameTypeRef.current === "trace",
+          );
+        } else {
+          // In-game: show Quit button on top right
+          buttonsConfig.push({
+            id: "quit" as const,
+            x: width * 0.88,
+            labelEn: "QUIT",
+            labelJa: "やめる",
+            isActive: false,
             action: () => {
-              const currentlyActive = gameModeRef.current && gameTypeRef.current === "trace";
-              setGameModeRef.current(!currentlyActive);
-              setGameTypeRef.current("trace");
+              setGameModeRef.current(false);
             }
-          },
-          {
-            id: "kanji" as const,
-            x: width * 0.72,
-            labelEn: "KANJI",
-            labelJa: "かんじかき",
-            isActive: gameModeRef.current && gameTypeRef.current === "kanji",
-            action: () => {
-              const currentlyActive = gameModeRef.current && gameTypeRef.current === "kanji";
-              setGameModeRef.current(!currentlyActive);
-              setGameTypeRef.current("kanji");
-            }
+          });
+
+          // In Kanji game: also show Done button on top left
+          if (gameTypeRef.current === "kanji" && kanjiState === "writing") {
+            buttonsConfig.push({
+              id: "done" as const,
+              x: width * 0.12,
+              labelEn: "DONE",
+              labelJa: "できた！",
+              isActive: false,
+              action: () => {
+                triggerKanjiSuccess(width, height, colors, triggerFireworks);
+              }
+            });
           }
-        ];
+        }
 
         // Update Button Progresses and Check Trigger Collisions
         buttonsConfig.forEach((btn) => {
@@ -1493,7 +1528,7 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
             </div>
             
             <div style={{ fontSize: 10, color: "rgba(255, 255, 255, 0.3)", marginTop: 4 }}>
-              両手を近づけて「パン！」とたたくとクリアできるよ 👏
+              両手を近づけて「パン！」とたたくと、かいた線を消せるよ（かきなおし） 👏
             </div>
           </div>
         </div>
