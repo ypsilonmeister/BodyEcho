@@ -529,8 +529,25 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
           btnY = Math.max(height * 0.08, Math.min(height * 0.22, calculatedY));
         }
 
-        const btnRadius = height * 0.045;
-        const collisionRadius = btnRadius * 1.6;
+        // Responsive dynamic sizing for Air Buttons (larger on PC due to user distance, scaled for tablet/mobile)
+        let deviceType = "pc";
+        if (width < 768) {
+          deviceType = "mobile";
+        } else if (width <= 1024) {
+          deviceType = "tablet";
+        }
+
+        let btnRadius = height * 0.045;
+        if (deviceType === "mobile") {
+          btnRadius = Math.max(48, height * 0.075);
+        } else if (deviceType === "tablet") {
+          btnRadius = Math.max(62, height * 0.065);
+        } else {
+          // PC
+          btnRadius = Math.max(72, height * 0.06);
+        }
+
+        const collisionRadius = btnRadius * 1.5;
 
         // Pointer checking helpers (Index finger as primary, Wrist as fallback)
         const getHandPointer = (side: "l" | "r") => {
@@ -710,11 +727,28 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
           ctx.textAlign = "center";
           ctx.textBaseline = "middle";
           
-          ctx.font = `bold ${br * 0.28}px var(--font-sans)`;
+          // Dynamic responsive font sizes based on screen width
+          let fSizeEn = br * 0.28;
+          let fSizeJa = br * 0.2;
+          if (width < 768) {
+            // Mobile: larger text ratio for small screens
+            fSizeEn = br * 0.32;
+            fSizeJa = br * 0.24;
+          } else if (width <= 1024) {
+            // Tablet
+            fSizeEn = br * 0.30;
+            fSizeJa = br * 0.22;
+          } else {
+            // PC: standard comfortable ratio but larger overall since br itself is larger
+            fSizeEn = br * 0.28;
+            fSizeJa = br * 0.21;
+          }
+
+          ctx.font = `bold ${fSizeEn}px var(--font-sans)`;
           ctx.fillStyle = textColor;
           ctx.fillText(labelEn, bx, by - br * 0.15);
           
-          ctx.font = `bold ${br * 0.2}px var(--font-sans)`;
+          ctx.font = `bold ${fSizeJa}px var(--font-sans)`;
           ctx.fillStyle = isHovered ? colorActive : (isActive ? "#ffffff" : "var(--text-secondary)");
           ctx.fillText(labelJa, bx, by + br * 0.2);
 

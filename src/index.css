@@ -177,7 +177,7 @@ body, html {
 
 .control-panel h2 {
   margin: 0 0 16px 0;
-  font-size: 20px;
+  font-size: 22px;
   font-weight: 700;
   letter-spacing: 0.5px;
   background: linear-gradient(135deg, var(--text-primary), var(--text-secondary));
@@ -197,7 +197,7 @@ body, html {
 
 .settings-group label {
   display: block;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 0.8px;
@@ -258,7 +258,7 @@ body, html {
 }
 
 .toggle-label {
-  font-size: 14px;
+  font-size: 15px;
   color: var(--text-primary);
 }
 
@@ -317,7 +317,7 @@ input:checked + .slider-round:before {
   border: 1px solid var(--glass-border);
   color: var(--text-primary);
   outline: none;
-  font-size: 14px;
+  font-size: 15px;
   cursor: pointer;
   font-family: var(--font-sans);
   transition: all 0.2s;
@@ -614,4 +614,81 @@ input:checked + .slider-round:before {
   padding: 4px 10px;
   border-radius: 6px;
   background: rgba(255, 255, 255, 0.02);
+}
+
+/* --- Responsive Adjustments & Scaling --- */
+
+/* Tablets (landscape and portrait) */
+@media (max-width: 1024px) {
+  .control-panel {
+    top: 20px;
+    right: 80px;
+    width: 300px;
+    padding: 20px;
+  }
+  .control-panel h2 {
+    font-size: 20px;
+  }
+  .settings-group label {
+    font-size: 13px;
+  }
+  .toggle-label, .control-select {
+    font-size: 14px;
+  }
+}
+
+/* Mobile Phones (portrait and landscape) */
+@media (max-width: 767px) {
+  .settings-trigger {
+    top: 16px;
+    right: 16px;
+    width: 44px;
+    height: 44px;
+  }
+  .control-panel {
+    top: 16px;
+    right: 72px;
+    width: 280px;
+    padding: 16px;
+    border-radius: 12px;
+  }
+  .control-panel h2 {
+    font-size: 18px;
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+  }
+  .settings-group {
+    margin-bottom: 14px;
+  }
+  .settings-group label {
+    font-size: 12px;
+    margin-bottom: 6px;
+  }
+  .toggle-label, .control-select {
+    font-size: 13px;
+  }
+  .theme-btn {
+    height: 28px;
+    font-size: 10px;
+  }
+  .volume-slider-container {
+    padding: 8px 10px;
+  }
+  
+  .status-indicator {
+    top: 16px;
+    left: 16px;
+    padding: 8px 12px;
+  }
+  .calib-instructions {
+    bottom: 24px;
+    padding: 12px 20px;
+    font-size: 14px;
+  }
+  .calib-instructions h3 {
+    font-size: 13px;
+  }
+  .calib-instructions p {
+    font-size: 12px;
+  }
 }
