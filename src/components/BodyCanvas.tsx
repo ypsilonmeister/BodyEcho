@@ -216,6 +216,29 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
   const kanjiHandRef = useRef(kanjiHand);
   const setKanjiCharRef = useRef(setKanjiChar);
 
+  // Cached theme color values, refreshed only when the theme changes (avoids
+  // calling getComputedStyle every frame inside the 60fps render loop)
+  const colorsRef = useRef<{
+    right: string;
+    left: string;
+    center: string;
+    rightGlow: string;
+    leftGlow: string;
+    centerGlow: string;
+  } | null>(null);
+
+  const refreshThemeColors = () => {
+    const style = getComputedStyle(document.body);
+    colorsRef.current = {
+      right: style.getPropertyValue("--color-right").trim() || "#00f0ff",
+      left: style.getPropertyValue("--color-left").trim() || "#ff007f",
+      center: style.getPropertyValue("--color-center").trim() || "#ffffff",
+      rightGlow: style.getPropertyValue("--color-right-glow").trim() || "rgba(0, 240, 255, 0.4)",
+      leftGlow: style.getPropertyValue("--color-left-glow").trim() || "rgba(255, 0, 127, 0.4)",
+      centerGlow: style.getPropertyValue("--color-center-glow").trim() || "rgba(255, 255, 255, 0.3)",
+    };
+  };
+
   useEffect(() => {
     landmarksRef.current = landmarks;
     calibratedRef.current = calibrated;
@@ -238,6 +261,11 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
     kanjiHandRef.current = kanjiHand;
     setKanjiCharRef.current = setKanjiChar;
   }, [landmarks, calibrated, showTrails, theme, autoCalibMode, videoElement, cameraBackground, gameMode, setGameMode, gameType, setGameType, traceHand, tracePathType, traceSpeed, stretchHighlights, onResetTriggered, setCalibrated, kanjiChar, kanjiHand, setKanjiChar]);
+
+  // Refresh cached theme colors whenever the theme changes
+  useEffect(() => {
+    refreshThemeColors();
+  }, [theme]);
 
   // Track calibration toggle state
   const prevCalibrated = useRef<boolean>(calibrated);
@@ -432,23 +460,12 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
       handleResetCheck(pose);
 
       if (calibratedRef.current) {
-        // Retrieve theme color values
-        const style = getComputedStyle(document.body);
-        const colorRight = style.getPropertyValue("--color-right").trim() || "#00f0ff";
-        const colorLeft = style.getPropertyValue("--color-left").trim() || "#ff007f";
-        const colorCenter = style.getPropertyValue("--color-center").trim() || "#ffffff";
-        const colorRightGlow = style.getPropertyValue("--color-right-glow").trim() || "rgba(0, 240, 255, 0.4)";
-        const colorLeftGlow = style.getPropertyValue("--color-left-glow").trim() || "rgba(255, 0, 127, 0.4)";
-        const colorCenterGlow = style.getPropertyValue("--color-center-glow").trim() || "rgba(255, 255, 255, 0.3)";
-
-        const colors = {
-          right: colorRight,
-          left: colorLeft,
-          center: colorCenter,
-          rightGlow: colorRightGlow,
-          leftGlow: colorLeftGlow,
-          centerGlow: colorCenterGlow,
-        };
+        // Use cached theme color values (refreshed on theme change) instead of
+        // calling getComputedStyle on every frame
+        if (!colorsRef.current) {
+          refreshThemeColors();
+        }
+        const colors = colorsRef.current!;
 
         const jointRadius = height * 0.011;
         const boneWidth = height * 0.005;

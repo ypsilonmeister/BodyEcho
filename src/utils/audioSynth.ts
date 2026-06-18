@@ -51,7 +51,9 @@ class AudioSynth {
       if (this.drawGainNode && this.drawActive && !this.isMuted) {
         this.drawGainNode.gain.setValueAtTime(0.04 * this.volume, audioCtx.currentTime);
       }
-    } catch (e) {}
+    } catch (e) {
+      console.warn("audioSynth: failed to apply volume", e);
+    }
   }
 
   /**
@@ -69,7 +71,9 @@ class AudioSynth {
         const targetGain = !this.isMuted && this.drawActive ? 0.04 * this.volume : 0;
         this.drawGainNode.gain.setValueAtTime(targetGain, audioCtx.currentTime);
       }
-    } catch (e) {}
+    } catch (e) {
+      console.warn("audioSynth: failed to apply mute state", e);
+    }
   }
 
   /**
