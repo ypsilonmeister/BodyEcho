@@ -1,5 +1,30 @@
-import React, { useRef, useEffect, useState } from "react";
+import React, { useRef, useEffect } from "react";
 import { audioSynth } from "../utils/audioSynth";
+import usePoseMatchingGame from "./games/usePoseMatchingGame";
+import useSlowTraceGame from "./games/useSlowTraceGame";
+
+// Vector Angle calculation helper (pure utility exported for game hooks)
+export const calculateAngle = (
+  a: { x: number; y: number } | null,
+  b: { x: number; y: number } | null,
+  c: { x: number; y: number } | null
+): number => {
+  if (!a || !b || !c) return 0;
+  
+  // Vectors from joint vertex b
+  const ba = { x: a.x - b.x, y: a.y - b.y };
+  const bc = { x: c.x - b.x, y: c.y - b.y };
+
+  const dotProduct = ba.x * bc.x + ba.y * bc.y;
+  const magBA = Math.sqrt(ba.x * ba.x + ba.y * ba.y);
+  const magBC = Math.sqrt(bc.x * bc.x + bc.y * bc.y);
+
+  if (magBA === 0 || magBC === 0) return 0;
+
+  const cosTheta = dotProduct / (magBA * magBC);
+  const clampedCos = Math.max(-1.0, Math.min(1.0, cosTheta));
+  return Math.acos(clampedCos) * (180.0 / Math.PI);
+};
 
 interface BodyCanvasProps {
   landmarks: any[] | null;
@@ -13,6 +38,10 @@ interface BodyCanvasProps {
   cameraBackground: "calibration" | "always" | "never";
   gameMode: boolean;
   setGameMode: (val: boolean) => void;
+  gameType: "pose" | "trace";
+  traceHand: "left" | "right";
+  tracePathType: "horizontal" | "vertical" | "sine" | "circle";
+  traceSpeed: "slow" | "medium" | "fast";
   stretchHighlights: boolean;
 }
 
@@ -57,6 +86,10 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
   cameraBackground,
   gameMode,
   setGameMode,
+  gameType,
+  traceHand,
+  tracePathType,
+  traceSpeed,
   stretchHighlights,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -98,11 +131,26 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
     rKnee: false,
   });
 
-  // Game Mode States
-  const [activePoseIndex, setActivePoseIndex] = useState<number>(0);
-  const matchProgressRef = useRef<number>(0); // 0 to 100
-  const isMatchingRef = useRef<boolean>(false);
-  const matchStartRef = useRef<number>(0);
+  // Game hooks integration
+  const {
+    currentPose,
+    reset: resetPoseGame,
+    updateAndDrawPoseGame
+  } = usePoseMatchingGame({ autoCalibMode });
+
+  const {
+    reset: resetTraceGame,
+    updateAndDrawTraceGame
+  } = useSlowTraceGame({
+    calibrated,
+    gameMode,
+    gameType,
+    traceHand,
+    tracePathType,
+    traceSpeed,
+    setGameMode
+  });
+
   const btnHoverProgressRef = useRef<number>(0); // 0 to 100 for Air Button
 
   // Persistent smoothed joints array (for 33 landmarks)
@@ -120,8 +168,11 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
   const cameraBackgroundRef = useRef(cameraBackground);
   const gameModeRef = useRef(gameMode);
   const setGameModeRef = useRef(setGameMode);
+  const gameTypeRef = useRef(gameType);
+  const traceHandRef = useRef(traceHand);
+  const tracePathTypeRef = useRef(tracePathType);
+  const traceSpeedRef = useRef(traceSpeed);
   const stretchHighlightsRef = useRef(stretchHighlights);
-  const activePoseIndexRef = useRef(activePoseIndex);
   const onResetTriggeredRef = useRef(onResetTriggered);
   const setCalibratedRef = useRef(setCalibrated);
 
@@ -135,11 +186,14 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
     cameraBackgroundRef.current = cameraBackground;
     gameModeRef.current = gameMode;
     setGameModeRef.current = setGameMode;
+    gameTypeRef.current = gameType;
+    traceHandRef.current = traceHand;
+    tracePathTypeRef.current = tracePathType;
+    traceSpeedRef.current = traceSpeed;
     stretchHighlightsRef.current = stretchHighlights;
-    activePoseIndexRef.current = activePoseIndex;
     onResetTriggeredRef.current = onResetTriggered;
     setCalibratedRef.current = setCalibrated;
-  }, [landmarks, calibrated, showTrails, theme, autoCalibMode, videoElement, cameraBackground, gameMode, setGameMode, stretchHighlights, activePoseIndex, onResetTriggered, setCalibrated]);
+  }, [landmarks, calibrated, showTrails, theme, autoCalibMode, videoElement, cameraBackground, gameMode, setGameMode, gameType, traceHand, tracePathType, traceSpeed, stretchHighlights, onResetTriggered, setCalibrated]);
 
   // Track calibration toggle state
   const prevCalibrated = useRef<boolean>(calibrated);
@@ -152,9 +206,9 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
     rightAnkleTrail.current = [];
     ripplesRef.current = [];
     particlesRef.current = [];
-    matchProgressRef.current = 0;
     btnHoverProgressRef.current = 0;
-    isMatchingRef.current = false;
+    resetPoseGame();
+    resetTraceGame();
   };
 
   // Canvas scaling and resizing
@@ -199,269 +253,7 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
     }
   }, [calibrated]);
 
-  // Vector Angle calculation helper
-  const calculateAngle = (
-    a: { x: number; y: number } | null,
-    b: { x: number; y: number } | null,
-    c: { x: number; y: number } | null
-  ): number => {
-    if (!a || !b || !c) return 0;
-    
-    // Vectors from joint vertex b
-    const ba = { x: a.x - b.x, y: a.y - b.y };
-    const bc = { x: c.x - b.x, y: c.y - b.y };
 
-    const dotProduct = ba.x * bc.x + ba.y * bc.y;
-    const magBA = Math.sqrt(ba.x * ba.x + ba.y * ba.y);
-    const magBC = Math.sqrt(bc.x * bc.x + bc.y * bc.y);
-
-    if (magBA === 0 || magBC === 0) return 0;
-
-    const cosTheta = dotProduct / (magBA * magBC);
-    const clampedCos = Math.max(-1.0, Math.min(1.0, cosTheta));
-    return Math.acos(clampedCos) * (180.0 / Math.PI);
-  };
-
-  // Target Pose Blueprints definitions
-  const gamePoses = [
-    {
-      name: "T-POSE",
-      japaneseName: "Tのポーズ",
-      description: "両うでをヨコにまっすぐ広げてね！",
-      checkMatch: (joints: any, _height: number) => {
-        if (!joints.lShoulder || !joints.rShoulder || !joints.lElbow || !joints.rElbow || !joints.lWrist || !joints.rWrist) return false;
-        
-        // Calculate arm straightness
-        const lAngle = calculateAngle(joints.lShoulder, joints.lElbow, joints.lWrist);
-        const rAngle = calculateAngle(joints.rShoulder, joints.rElbow, joints.rWrist);
-
-        // Use shoulder width as a dynamic reference to scale matching thresholds
-        const shoulderDist = Math.hypot(
-          joints.lShoulder.x - joints.rShoulder.x,
-          joints.lShoulder.y - joints.rShoulder.y
-        );
-        if (shoulderDist < 10) return false;
-
-        // Check if wrists are horizontal relative to shoulders (scaled dynamically)
-        const lHoriz = Math.abs(joints.lWrist.y - joints.lShoulder.y) < shoulderDist * 0.6;
-        const rHoriz = Math.abs(joints.rWrist.y - joints.rShoulder.y) < shoulderDist * 0.6;
-
-        return lAngle > 158 && rAngle > 158 && lHoriz && rHoriz;
-      },
-      drawSilhouette: (ctx: CanvasRenderingContext2D, width: number, height: number, color: string) => {
-        const cX = width / 2;
-        const sY = height * 0.38;
-        const armL = width * 0.25;
-        const spineL = height * 0.35;
-
-        ctx.beginPath();
-        // Arms
-        ctx.moveTo(cX - armL, sY);
-        ctx.lineTo(cX + armL, sY);
-        // Spine
-        ctx.moveTo(cX, sY);
-        ctx.lineTo(cX, sY + spineL);
-        // Hips
-        ctx.moveTo(cX - width * 0.06, sY + spineL);
-        ctx.lineTo(cX + width * 0.06, sY + spineL);
-        // Legs
-        ctx.moveTo(cX - width * 0.04, sY + spineL);
-        ctx.lineTo(cX - width * 0.04, sY + spineL + height * 0.2);
-        ctx.moveTo(cX + width * 0.04, sY + spineL);
-        ctx.lineTo(cX + width * 0.04, sY + spineL + height * 0.2);
-        
-        ctx.strokeStyle = color;
-        ctx.lineWidth = 4;
-        ctx.stroke();
-
-        // Draw node guides
-        ctx.fillStyle = color;
-        ctx.beginPath();
-        ctx.arc(cX - armL, sY, 8, 0, 2*Math.PI);
-        ctx.arc(cX + armL, sY, 8, 0, 2*Math.PI);
-        ctx.arc(cX, sY - 40, 15, 0, 2*Math.PI); // head
-        ctx.fill();
-      }
-    },
-    {
-      name: "STAR POSE",
-      japaneseName: "星のポーズ",
-      description: "手足を大きく広げて、お星さまになろう！",
-      checkMatch: (joints: any, _height: number, _width: number) => {
-        if (!joints.lShoulder || !joints.rShoulder || !joints.lWrist || !joints.rWrist || !joints.lAnkle || !joints.rAnkle) return false;
-        
-        // Use shoulder width as a dynamic reference to scale matching thresholds
-        const shoulderDist = Math.hypot(
-          joints.lShoulder.x - joints.rShoulder.x,
-          joints.lShoulder.y - joints.rShoulder.y
-        );
-        if (shoulderDist < 10) return false;
-
-        // Wrists above shoulders (scaled dynamically)
-        const lHigh = joints.lWrist.y < joints.lShoulder.y - shoulderDist * 0.45;
-        const rHigh = joints.rWrist.y < joints.rShoulder.y - shoulderDist * 0.45;
-        
-        // Legs spread wide (scaled dynamically relative to shoulder width)
-        const legsWide = Math.abs(joints.lAnkle.x - joints.rAnkle.x) > shoulderDist * 1.3;
-
-        return lHigh && rHigh && legsWide;
-      },
-      drawSilhouette: (ctx: CanvasRenderingContext2D, width: number, height: number, color: string) => {
-        const cX = width / 2;
-        const sY = height * 0.38;
-        const spineL = height * 0.35;
-
-        ctx.beginPath();
-        // Left Arm raised
-        ctx.moveTo(cX, sY);
-        ctx.lineTo(cX - width * 0.18, sY - height * 0.15);
-        // Right Arm raised
-        ctx.moveTo(cX, sY);
-        ctx.lineTo(cX + width * 0.18, sY - height * 0.15);
-        // Spine
-        ctx.moveTo(cX, sY);
-        ctx.lineTo(cX, sY + spineL);
-        // Left Leg wide
-        ctx.moveTo(cX, sY + spineL);
-        ctx.lineTo(cX - width * 0.16, sY + spineL + height * 0.2);
-        // Right Leg wide
-        ctx.moveTo(cX, sY + spineL);
-        ctx.lineTo(cX + width * 0.16, sY + spineL + height * 0.2);
-
-        ctx.strokeStyle = color;
-        ctx.lineWidth = 4;
-        ctx.stroke();
-
-        ctx.fillStyle = color;
-        ctx.beginPath();
-        ctx.arc(cX - width * 0.18, sY - height * 0.15, 8, 0, 2*Math.PI);
-        ctx.arc(cX + width * 0.18, sY - height * 0.15, 8, 0, 2*Math.PI);
-        ctx.arc(cX, sY - 40, 15, 0, 2*Math.PI); // head
-        ctx.fill();
-      }
-    },
-    {
-      name: "FLAMINGO",
-      japaneseName: "フラミンゴのポーズ",
-      description: "片足で立って、もう片方のヒザを曲げてキープしてね！",
-      checkMatch: (joints: any, _height: number) => {
-        if (!joints.lHip || !joints.rHip || !joints.lKnee || !joints.rKnee || !joints.lAnkle || !joints.rAnkle || !joints.lShoulder || !joints.rShoulder) return false;
-        
-        const lKneeAngle = calculateAngle(joints.lHip, joints.lKnee, joints.lAnkle);
-        const rKneeAngle = calculateAngle(joints.rHip, joints.rKnee, joints.rAnkle);
-
-        // Use shoulder width as a dynamic reference to scale matching thresholds
-        const shoulderDist = Math.hypot(
-          joints.lShoulder.x - joints.rShoulder.x,
-          joints.lShoulder.y - joints.rShoulder.y
-        );
-        if (shoulderDist < 10) return false;
-
-        // One leg straight, other leg bent and ankle raised (scaled dynamically relative to shoulder width)
-        const leftLegBent = lKneeAngle < 110 && joints.lAnkle.y < joints.rAnkle.y - shoulderDist * 0.4 && rKneeAngle > 155;
-        const rightLegBent = rKneeAngle < 110 && joints.rAnkle.y < joints.lAnkle.y - shoulderDist * 0.4 && lKneeAngle > 155;
-
-        return leftLegBent || rightLegBent;
-      },
-      drawSilhouette: (ctx: CanvasRenderingContext2D, width: number, height: number, color: string) => {
-        const cX = width / 2;
-        const sY = height * 0.38;
-        const spineL = height * 0.35;
-
-        ctx.beginPath();
-        // Arms slightly low
-        ctx.moveTo(cX - width * 0.15, sY + height * 0.05);
-        ctx.lineTo(cX, sY);
-        ctx.lineTo(cX + width * 0.15, sY + height * 0.05);
-        // Spine
-        ctx.moveTo(cX, sY);
-        ctx.lineTo(cX, sY + spineL);
-        // Left Leg straight
-        ctx.moveTo(cX - width * 0.02, sY + spineL);
-        ctx.lineTo(cX - width * 0.02, sY + spineL + height * 0.2);
-        // Right Leg bent triangularly
-        ctx.moveTo(cX + width * 0.02, sY + spineL);
-        ctx.lineTo(cX + width * 0.1, sY + spineL + height * 0.08); // knee
-        ctx.lineTo(cX + width * 0.02, sY + spineL + height * 0.08); // foot resting
-
-        ctx.strokeStyle = color;
-        ctx.lineWidth = 4;
-        ctx.stroke();
-
-        ctx.fillStyle = color;
-        ctx.beginPath();
-        ctx.arc(cX, sY - 40, 15, 0, 2*Math.PI); // head
-        ctx.fill();
-      }
-    },
-    {
-      name: "ARCHER",
-      japaneseName: "弓矢のポーズ",
-      description: "片うでをまっすぐ伸ばし、もう片方のうでをグッと引いてね！",
-      checkMatch: (joints: any, _height: number) => {
-        if (!joints.lShoulder || !joints.rShoulder || !joints.lElbow || !joints.rElbow || !joints.lWrist || !joints.rWrist) return false;
-
-        const lArmAngle = calculateAngle(joints.lShoulder, joints.lElbow, joints.lWrist);
-        const rArmAngle = calculateAngle(joints.rShoulder, joints.rElbow, joints.rWrist);
-
-        // Use shoulder width as a dynamic reference to scale matching thresholds
-        const shoulderDist = Math.hypot(
-          joints.lShoulder.x - joints.rShoulder.x,
-          joints.lShoulder.y - joints.rShoulder.y
-        );
-        if (shoulderDist < 10) return false;
-
-        // Archer Left: Left fully straight, Right arm bent near shoulder (scaled dynamically)
-        const archerLeft = lArmAngle > 160 && rArmAngle < 110 && Math.abs(joints.lWrist.y - joints.lShoulder.y) < shoulderDist * 0.6;
-        // Archer Right: Right fully straight, Left arm bent near shoulder (scaled dynamically)
-        const archerRight = rArmAngle > 160 && lArmAngle < 110 && Math.abs(joints.rWrist.y - joints.rShoulder.y) < shoulderDist * 0.6;
-
-        return archerLeft || archerRight;
-      },
-      drawSilhouette: (ctx: CanvasRenderingContext2D, width: number, height: number, color: string) => {
-        const cX = width / 2;
-        const sY = height * 0.38;
-        const spineL = height * 0.35;
-
-        ctx.beginPath();
-        // Left Arm extended straight
-        ctx.moveTo(cX, sY);
-        ctx.lineTo(cX - width * 0.25, sY);
-        // Right Arm pulled back
-        ctx.moveTo(cX, sY);
-        ctx.lineTo(cX + width * 0.08, sY - height * 0.04);
-        ctx.lineTo(cX + width * 0.05, sY + height * 0.06);
-        // Spine
-        ctx.moveTo(cX, sY);
-        ctx.lineTo(cX, sY + spineL);
-        // Legs standing
-        ctx.moveTo(cX - width * 0.05, sY + spineL);
-        ctx.lineTo(cX - width * 0.05, sY + spineL + height * 0.2);
-        ctx.moveTo(cX + width * 0.05, sY + spineL);
-        ctx.lineTo(cX + width * 0.05, sY + spineL + height * 0.2);
-
-        ctx.strokeStyle = color;
-        ctx.lineWidth = 4;
-        ctx.stroke();
-
-        ctx.fillStyle = color;
-        ctx.beginPath();
-        ctx.arc(cX - width * 0.25, sY, 8, 0, 2*Math.PI); // left wrist
-        ctx.arc(cX + width * 0.05, sY + height * 0.06, 8, 0, 2*Math.PI); // right wrist
-        ctx.arc(cX, sY - 40, 15, 0, 2*Math.PI); // head
-        ctx.fill();
-      }
-    }
-  ];
-
-  // Helper: Filter target poses based on calibration mode (seated/full)
-  const getActivePoses = () => {
-    if (autoCalibModeRef.current === "upper") {
-      // Exclude Flamingo pose which requires ankle balance tracking
-      return gamePoses.filter(pose => pose.name !== "FLAMINGO");
-    }
-    return gamePoses;
-  };
 
   // Helper: Spawn fireworks particles on clear
   const triggerFireworks = (centerX: number, centerY: number, colors: any) => {
@@ -504,6 +296,8 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
       });
     }
   };
+
+
 
   // Continuous 60 FPS render loop
   useEffect(() => {
@@ -908,75 +702,10 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
 
         // 6. Game Mode Overlay & Posture Checks
         if (gameModeRef.current) {
-          const activePoses = getActivePoses();
-          const currentPose = activePoses[activePoseIndexRef.current];
-          
-          if (currentPose) {
-            // Draw target dotted silhouette
-            ctx.save();
-            ctx.setLineDash([6, 6]);
-            ctx.shadowBlur = 10;
-            ctx.shadowColor = "rgba(255, 255, 255, 0.15)";
-            
-            const isMatchActive = currentPose.checkMatch(joints, height, width);
-            const silhouetteColor = isMatchActive ? "#ffb700" : "rgba(255, 255, 255, 0.18)";
-            
-            currentPose.drawSilhouette(ctx, width, height, silhouetteColor);
-            ctx.restore();
-
-            // Render matching progress circular ring
-            if (isMatchActive) {
-              if (!isMatchingRef.current) {
-                isMatchingRef.current = true;
-                matchStartRef.current = Date.now();
-              }
-
-              const elapsed = Date.now() - matchStartRef.current;
-              const progress = Math.min(100, (elapsed / 1200) * 100); // 1.2 seconds hold
-              matchProgressRef.current = progress;
-
-              if (elapsed >= 1200) {
-                // Target Matched! Play fanfare, burst fireworks, next pose
-                audioSynth.playPoseClear();
-                if (joints.nose) {
-                  triggerFireworks(joints.nose.x, joints.nose.y, colors);
-                } else {
-                  triggerFireworks(width / 2, height * 0.4, colors);
-                }
-
-                // Advance index
-                setActivePoseIndex((prev) => (prev + 1) % activePoses.length);
-                matchProgressRef.current = 0;
-                isMatchingRef.current = false;
-              }
-            } else {
-              // Decay progress slowly if wobbly
-              if (isMatchingRef.current) {
-                const elapsed = Date.now() - matchStartRef.current;
-                if (elapsed < 100) {
-                  isMatchingRef.current = false;
-                  matchProgressRef.current = 0;
-                } else {
-                  matchProgressRef.current = Math.max(0, matchProgressRef.current - 4);
-                  if (matchProgressRef.current === 0) {
-                    isMatchingRef.current = false;
-                  }
-                }
-              }
-            }
-
-            // Draw progress ring around nose/head
-            if (matchProgressRef.current > 0 && joints.nose) {
-              ctx.save();
-              ctx.beginPath();
-              ctx.arc(joints.nose.x, joints.nose.y, jointRadius * 2.2, -0.5 * Math.PI, (-0.5 + 2 * (matchProgressRef.current / 100)) * Math.PI);
-              ctx.strokeStyle = "#ffb700";
-              ctx.lineWidth = height * 0.005;
-              ctx.shadowBlur = 10;
-              ctx.shadowColor = "rgba(255, 183, 0, 0.6)";
-              ctx.stroke();
-              ctx.restore();
-            }
+          if (gameTypeRef.current === "pose") {
+            updateAndDrawPoseGame(ctx, joints, width, height, colors, jointRadius, triggerFireworks);
+          } else if (gameTypeRef.current === "trace") {
+            updateAndDrawTraceGame(ctx, joints, width, height, colors, particlesRef);
           }
         }
 
@@ -1402,14 +1131,12 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
     ctx.restore();
   };
 
-  // Exposed Game Instructions Header Content
-  const activePoses = getActivePoses();
-  const currentPose = activePoses[activePoseIndex];
+
 
   return (
     <div className="app-container" ref={containerRef}>
       {/* Dynamic Game Title Overlay inside Canvas viewport */}
-      {calibrated && gameMode && currentPose && (
+      {calibrated && gameMode && gameType === "pose" && currentPose && (
         <div style={{
           position: "absolute",
           top: 76,
@@ -1444,6 +1171,49 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
             marginTop: 4
           }}>
             {currentPose.description}
+          </div>
+        </div>
+      )}
+
+      {/* Slow Trace Mode instruction overlay */}
+      {calibrated && gameMode && gameType === "trace" && (
+        <div style={{
+          position: "absolute",
+          top: 76,
+          left: "50%",
+          transform: "translateX(-50%)",
+          fontFamily: "var(--font-sans)",
+          textAlign: "center",
+          zIndex: 5,
+          pointerEvents: "none"
+        }}>
+          <div style={{
+            fontSize: 12,
+            fontWeight: 700,
+            color: traceHand === "right" ? "var(--color-right)" : "var(--color-left)",
+            letterSpacing: 1.5,
+            textTransform: "uppercase",
+            marginBottom: 2
+          }}>
+            SLOW TRACE GAME / イライラ棒
+          </div>
+          <div style={{
+            fontSize: 22,
+            fontWeight: 700,
+            color: "#ffffff",
+            textShadow: "0 0 10px rgba(255, 255, 255, 0.2)"
+          }}>
+            {tracePathType === "horizontal" && "まっすぐ線（よこ）"}
+            {tracePathType === "vertical" && "まっすぐ線（たて）"}
+            {tracePathType === "sine" && "なみの線"}
+            {tracePathType === "circle" && "まるい線"}
+          </div>
+          <div style={{
+            fontSize: 13,
+            color: "var(--text-secondary)",
+            marginTop: 4
+          }}>
+            {traceHand === "right" ? "右手" : "左手"}で光の球をゆっくりおいかけてね！
           </div>
         </div>
       )}

@@ -33,6 +33,14 @@ interface ControlPanelProps {
   setCameraBackground: (val: "calibration" | "always" | "never") => void;
   gameMode: boolean;
   setGameMode: (val: boolean) => void;
+  gameType: "pose" | "trace";
+  setGameType: (val: "pose" | "trace") => void;
+  traceHand: "left" | "right";
+  setTraceHand: (val: "left" | "right") => void;
+  tracePathType: "horizontal" | "vertical" | "sine" | "circle";
+  setTracePathType: (val: "horizontal" | "vertical" | "sine" | "circle") => void;
+  traceSpeed: "slow" | "medium" | "fast";
+  setTraceSpeed: (val: "slow" | "medium" | "fast") => void;
   stretchHighlights: boolean;
   setStretchHighlights: (val: boolean) => void;
   devices: MediaDeviceInfo[];
@@ -61,6 +69,14 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   setCameraBackground,
   gameMode,
   setGameMode,
+  gameType,
+  setGameType,
+  traceHand,
+  setTraceHand,
+  tracePathType,
+  setTracePathType,
+  traceSpeed,
+  setTraceSpeed,
   stretchHighlights,
   setStretchHighlights,
   devices,
@@ -179,6 +195,65 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
             </label>
           </div>
         </div>
+
+        {/* Game Type Selection */}
+        {gameMode && (
+          <div className="settings-group" style={{ paddingLeft: 12, borderLeft: "2px solid var(--color-right)" }}>
+            <label>Game Type / ゲームの選択</label>
+            <select
+              value={gameType}
+              onChange={(e) => setGameType(e.target.value as "pose" | "trace")}
+              className="control-select"
+            >
+              <option value="pose">ポーズ合わせ (Pose Matching)</option>
+              <option value="trace">イライラ棒 (Slow Trace)</option>
+            </select>
+          </div>
+        )}
+
+        {/* Slow Trace Specific Settings */}
+        {gameMode && gameType === "trace" && (
+          <div className="settings-group" style={{ paddingLeft: 12, borderLeft: "2px solid var(--color-right)", display: "flex", flexDirection: "column", gap: 12 }}>
+            <div>
+              <label>Tracked Wrist / なぞる手</label>
+              <select
+                value={traceHand}
+                onChange={(e) => setTraceHand(e.target.value as "left" | "right")}
+                className="control-select"
+              >
+                <option value="right">右手 (Right Wrist)</option>
+                <option value="left">左手 (Left Wrist)</option>
+              </select>
+            </div>
+            
+            <div>
+              <label>Course Path / コースの形状</label>
+              <select
+                value={tracePathType}
+                onChange={(e) => setTracePathType(e.target.value as "horizontal" | "vertical" | "sine" | "circle")}
+                className="control-select"
+              >
+                <option value="horizontal">直線：よこ (Horizontal)</option>
+                <option value="vertical">直線：たて (Vertical)</option>
+                <option value="sine">なみの線 (Sine Wave)</option>
+                <option value="circle">まるい線 (Circle Arc)</option>
+              </select>
+            </div>
+
+            <div>
+              <label>Trace Speed / スピード</label>
+              <select
+                value={traceSpeed}
+                onChange={(e) => setTraceSpeed(e.target.value as "slow" | "medium" | "fast")}
+                className="control-select"
+              >
+                <option value="slow">ゆっくり (Slow)</option>
+                <option value="medium">ふつう (Medium)</option>
+                <option value="fast">はやめ (Fast)</option>
+              </select>
+            </div>
+          </div>
+        )}
 
         {/* Stretch Highlights Toggle */}
         <div className="settings-group">

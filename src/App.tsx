@@ -20,6 +20,10 @@ function App() {
   const [complexity, setComplexity] = useState<PoseComplexity>("lite");
   const [cameraBackground, setCameraBackground] = useState<"calibration" | "always" | "never">("calibration");
   const [gameMode, setGameMode] = useState<boolean>(false);
+  const [gameType, setGameType] = useState<"pose" | "trace">("pose");
+  const [traceHand, setTraceHand] = useState<"left" | "right">("right");
+  const [tracePathType, setTracePathType] = useState<"horizontal" | "vertical" | "sine" | "circle">("horizontal");
+  const [traceSpeed, setTraceSpeed] = useState<"slow" | "medium" | "fast">("medium");
   const [stretchHighlights, setStretchHighlights] = useState<boolean>(true);
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>("");
@@ -355,6 +359,10 @@ function App() {
           cameraBackground={cameraBackground}
           gameMode={gameMode}
           setGameMode={setGameMode}
+          gameType={gameType}
+          traceHand={traceHand}
+          tracePathType={tracePathType}
+          traceSpeed={traceSpeed}
           stretchHighlights={stretchHighlights}
         />
       )}
@@ -382,6 +390,14 @@ function App() {
           setCameraBackground={setCameraBackground}
           gameMode={gameMode}
           setGameMode={setGameMode}
+          gameType={gameType}
+          setGameType={setGameType}
+          traceHand={traceHand}
+          setTraceHand={setTraceHand}
+          tracePathType={tracePathType}
+          setTracePathType={setTracePathType}
+          traceSpeed={traceSpeed}
+          setTraceSpeed={setTraceSpeed}
           stretchHighlights={stretchHighlights}
           setStretchHighlights={setStretchHighlights}
           devices={devices}

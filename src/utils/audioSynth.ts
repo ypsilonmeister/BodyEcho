@@ -7,6 +7,11 @@ class AudioSynth {
   private volume: number = 0.5; // Default volume (0.0 to 1.0)
   private isMuted: boolean = false;
 
+  // Track the continuous chord oscillators and gain node for Slow Trace Mode
+  private traceOscillators: OscillatorNode[] = [];
+  private traceGainNode: GainNode | null = null;
+  private traceChordActive: boolean = false;
+
   constructor() {
     // Lazy initialize to bypass browser autoplay policy
   }
@@ -33,6 +38,12 @@ class AudioSynth {
    */
   public setVolume(val: number) {
     this.volume = Math.max(0, Math.min(1, val));
+    if (this.traceGainNode && this.traceChordActive && !this.isMuted) {
+      try {
+        const audioCtx = this.initContext();
+        this.traceGainNode.gain.setValueAtTime(0.08 * this.volume, audioCtx.currentTime);
+      } catch (e) {}
+    }
   }
 
   /**
@@ -40,6 +51,13 @@ class AudioSynth {
    */
   public setMute(muted: boolean) {
     this.isMuted = muted;
+    if (this.traceGainNode) {
+      try {
+        const audioCtx = this.initContext();
+        const targetGain = !this.isMuted && this.traceChordActive ? 0.08 * this.volume : 0;
+        this.traceGainNode.gain.setValueAtTime(targetGain, audioCtx.currentTime);
+      } catch (e) {}
+    }
   }
 
   /**
@@ -187,6 +205,90 @@ class AudioSynth {
         gainStart: 0.12,
         delay: index * 0.04
       });
+    });
+  }
+
+  /**
+   * Start a continuous ambient major chord (C4, E4, G4, C5) for Slow Trace (Irirabou) Mode
+   */
+  public startTraceChord() {
+    try {
+      const audioCtx = this.initContext();
+      this.stopTraceChord(); // safety clear
+      
+      this.traceGainNode = audioCtx.createGain();
+      this.traceGainNode.connect(audioCtx.destination);
+      
+      // Start with volume 0
+      this.traceGainNode.gain.setValueAtTime(0, audioCtx.currentTime);
+      this.traceChordActive = false;
+      
+      const freqs = [261.63, 329.63, 392.00, 523.25];
+      this.traceOscillators = freqs.map(freq => {
+        const osc = audioCtx.createOscillator();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+        osc.connect(this.traceGainNode!);
+        osc.start(audioCtx.currentTime);
+        return osc;
+      });
+    } catch (e) {
+      console.warn("Failed to start trace chord", e);
+    }
+  }
+
+  /**
+   * Smoothly fade in/out the continuous trace chord
+   */
+  public setTraceChordActive(active: boolean) {
+    this.traceChordActive = active;
+    if (!this.traceGainNode) return;
+    
+    try {
+      const audioCtx = this.initContext();
+      const targetGain = active && !this.isMuted ? 0.08 * this.volume : 0;
+      
+      this.traceGainNode.gain.linearRampToValueAtTime(targetGain, audioCtx.currentTime + 0.15);
+    } catch (e) {
+      console.warn("Failed to change trace chord activity", e);
+    }
+  }
+
+  /**
+   * Stop and clean up the continuous trace chord oscillators
+   */
+  public stopTraceChord() {
+    try {
+      this.traceChordActive = false;
+      if (this.traceOscillators.length > 0) {
+        this.traceOscillators.forEach(osc => {
+          try {
+            osc.stop();
+          } catch (e) {}
+        });
+        this.traceOscillators = [];
+      }
+      if (this.traceGainNode) {
+        try {
+          this.traceGainNode.disconnect();
+        } catch (e) {}
+        this.traceGainNode = null;
+      }
+    } catch (e) {
+      console.warn("Failed to stop trace chord", e);
+    }
+  }
+
+  /**
+   * Sound effect: Soft water-droplet/pizzicato sound for trace errors
+   */
+  public playTraceError() {
+    this.playTone({
+      freq: 220, // Low pitch A3
+      type: 'triangle',
+      duration: 0.12,
+      gainStart: 0.22,
+      freqEnd: 80 // fast sliding down pitch to simulate water drop
     });
   }
 }
