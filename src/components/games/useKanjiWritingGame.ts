@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { audioSynth } from "../../utils/audioSynth";
+import type { Point2D } from "../../types";
 
 export interface KanjiItem {
   char: string;
@@ -8,10 +9,7 @@ export interface KanjiItem {
   category: string;
 }
 
-export interface Point2D {
-  x: number;
-  y: number;
-}
+export type { Point2D };
 
 export const KANJI_CATEGORIES: Record<string, string> = {
   nature: "しぜん (Nature)",

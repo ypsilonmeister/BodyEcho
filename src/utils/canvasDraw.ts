@@ -1,6 +1,8 @@
 // Pure canvas drawing helpers extracted from BodyCanvas.
 // These take a 2D context plus plain arguments and hold no component state.
 
+import type { Particle, Ripple } from "../types";
+
 // Vector angle calculation helper (used by skeleton drawing and game hooks)
 export const calculateAngle = (
   a: { x: number; y: number } | null,
@@ -66,4 +68,59 @@ export const drawJoint = (
   ctx.shadowBlur = 0;
   ctx.fill();
   ctx.restore();
+};
+
+// Update particle positions/fade and render them. Mutates `particles` in place.
+export const updateAndDrawParticles = (
+  ctx: CanvasRenderingContext2D,
+  particles: Particle[]
+) => {
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.x += p.vx;
+    p.y += p.vy;
+    p.alpha -= p.life;
+
+    if (p.alpha <= 0) {
+      particles.splice(i, 1);
+    } else {
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.size, 0, 2 * Math.PI);
+      ctx.fillStyle = p.color;
+      ctx.globalAlpha = p.alpha;
+      ctx.shadowBlur = 8;
+      ctx.shadowColor = p.color;
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+};
+
+// Update expanding ripples and render them. Mutates `ripples` in place.
+export const updateAndDrawRipples = (
+  ctx: CanvasRenderingContext2D,
+  ripples: Ripple[],
+  height: number
+) => {
+  for (let i = ripples.length - 1; i >= 0; i--) {
+    const r = ripples[i];
+    r.radius += height * 0.006; // expansion rate
+    r.alpha -= 0.025; // fade rate
+
+    if (r.alpha <= 0) {
+      ripples.splice(i, 1);
+    } else {
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(r.x, r.y, r.radius, 0, 2 * Math.PI);
+      ctx.strokeStyle = r.color;
+      ctx.globalAlpha = r.alpha;
+      ctx.lineWidth = height * 0.003;
+      ctx.shadowBlur = 15;
+      ctx.shadowColor = r.color;
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
 };

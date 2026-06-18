@@ -3,7 +3,14 @@ import { audioSynth } from "../utils/audioSynth";
 import usePoseMatchingGame from "./games/usePoseMatchingGame";
 import useSlowTraceGame from "./games/useSlowTraceGame";
 import useKanjiWritingGame, { kanjiList } from "./games/useKanjiWritingGame";
-import { calculateAngle, drawBone, drawJoint } from "../utils/canvasDraw";
+import {
+  calculateAngle,
+  drawBone,
+  drawJoint,
+  updateAndDrawParticles,
+  updateAndDrawRipples,
+} from "../utils/canvasDraw";
+import type { Particle, Ripple, Point2D } from "../types";
 
 interface BodyCanvasProps {
   landmarks: any[] | null;
@@ -28,32 +35,6 @@ interface BodyCanvasProps {
   setKanjiChar: (val: string) => void;
   kanjiBrushStyle: "neon" | "flame" | "rainbow";
   kanjiTriggerGesture: "always" | "fist" | "index";
-}
-
-interface Point2D {
-  x: number;
-  y: number;
-  time: number;
-}
-
-interface Ripple {
-  x: number;
-  y: number;
-  radius: number;
-  maxRadius: number;
-  alpha: number;
-  color: string;
-}
-
-interface Particle {
-  x: number;
-  y: number;
-  vx: number;
-  vy: number;
-  color: string;
-  alpha: number;
-  size: number;
-  life: number;
 }
 
 // Queue size for trails
@@ -837,8 +818,8 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
         }
 
         // 4. Update and Render Ripples & Sparkle Particles
-        updateAndDrawRipples(ctx, height);
-        updateAndDrawParticles(ctx);
+        updateAndDrawRipples(ctx, ripplesRef.current, height);
+        updateAndDrawParticles(ctx, particlesRef.current);
 
         // Draw Kanji guide outline on the canvas background
         if (gameTypeRef.current === "kanji" && gameModeRef.current) {
@@ -998,55 +979,6 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
     };
   }, []);
 
-  // Update particles positions and fade
-  const updateAndDrawParticles = (ctx: CanvasRenderingContext2D) => {
-    const particles = particlesRef.current;
-    for (let i = particles.length - 1; i >= 0; i--) {
-      const p = particles[i];
-      p.x += p.vx;
-      p.y += p.vy;
-      p.alpha -= p.life;
-      
-      if (p.alpha <= 0) {
-        particles.splice(i, 1);
-      } else {
-        ctx.save();
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, p.size, 0, 2 * Math.PI);
-        ctx.fillStyle = p.color;
-        ctx.globalAlpha = p.alpha;
-        ctx.shadowBlur = 8;
-        ctx.shadowColor = p.color;
-        ctx.fill();
-        ctx.restore();
-      }
-    }
-  };
-
-  // Update expanding ripples
-  const updateAndDrawRipples = (ctx: CanvasRenderingContext2D, height: number) => {
-    const ripples = ripplesRef.current;
-    for (let i = ripples.length - 1; i >= 0; i--) {
-      const r = ripples[i];
-      r.radius += height * 0.006; // expansion rate
-      r.alpha -= 0.025; // fade rate
-
-      if (r.alpha <= 0) {
-        ripples.splice(i, 1);
-      } else {
-        ctx.save();
-        ctx.beginPath();
-        ctx.arc(r.x, r.y, r.radius, 0, 2 * Math.PI);
-        ctx.strokeStyle = r.color;
-        ctx.globalAlpha = r.alpha;
-        ctx.lineWidth = height * 0.003;
-        ctx.shadowBlur = 15;
-        ctx.shadowColor = r.color;
-        ctx.stroke();
-        ctx.restore();
-      }
-    }
-  };
 
 
   // Update trail queues and calculate velocity values
@@ -1119,7 +1051,7 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
 
         // Spiral secondary particle DNA tracer
         if (i > 0 && i % 3 === 0) {
-          const angle = (pt.time / 130) + (i * 0.5);
+          const angle = ((pt.time ?? 0) / 130) + (i * 0.5);
           const offset = size * (isFast ? 2.8 : 2.2);
           const spiralX = pt.x + Math.cos(angle) * offset;
           const spiralY = pt.y + Math.sin(angle) * offset;
