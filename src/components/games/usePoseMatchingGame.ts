@@ -1,6 +1,6 @@
 import { useState, useRef } from "react";
 import { audioSynth } from "../../utils/audioSynth";
-import { calculateAngle } from "../BodyCanvas";
+import { calculateAngle } from "../../utils/canvasDraw";
 
 export interface Pose {
   name: string;
