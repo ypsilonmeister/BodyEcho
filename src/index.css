@@ -154,7 +154,11 @@ body, html {
   position: fixed;
   top: 24px;
   right: 88px;
-  width: 320px;
+  /* Shrink to fit narrow viewports so the panel never overflows off-screen
+     (right offset + 16px left margin reserved). */
+  width: min(320px, calc(100vw - 88px - 16px));
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
   background: var(--glass-bg);
   border: 1px solid var(--glass-border);
   border-radius: 16px;
@@ -623,7 +627,7 @@ input:checked + .slider-round:before {
   .control-panel {
     top: 20px;
     right: 80px;
-    width: 300px;
+    width: min(300px, calc(100vw - 80px - 16px));
     padding: 20px;
   }
   .control-panel h2 {
@@ -648,7 +652,7 @@ input:checked + .slider-round:before {
   .control-panel {
     top: 16px;
     right: 72px;
-    width: 280px;
+    width: min(280px, calc(100vw - 72px - 12px));
     padding: 16px;
     border-radius: 12px;
   }

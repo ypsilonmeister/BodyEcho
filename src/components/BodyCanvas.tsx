@@ -540,6 +540,24 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
 
         const collisionRadius = btnRadius * 1.5;
 
+        // Horizontal layout for air buttons: derive x positions from the button
+        // radius (not a fixed width fraction) so buttons never overlap on narrow
+        // or portrait screens. Center spacing = 2.4 * radius keeps a 0.4r gap
+        // between adjacent circles. Positions are clamped to stay on-screen with
+        // a one-radius margin on each edge.
+        const btnSpacing = btnRadius * 2.4;
+        const btnCenterX = width / 2;
+        const clampBtnX = (x: number) =>
+          Math.max(btnRadius + 8, Math.min(width - btnRadius - 8, x));
+
+        // In game mode the centered HTML title overlay (~top 76px, up to ~3 lines)
+        // can collide with the air buttons when the comfort-reach Y pushes them to
+        // the top. Keep the button top edge below ~150px while playing.
+        if (gameModeRef.current) {
+          const gameMinBtnY = btnRadius + 150;
+          btnY = Math.min(Math.max(btnY, gameMinBtnY), height * 0.32);
+        }
+
         // Pointer checking helpers (Index finger as primary, Wrist as fallback)
         const getHandPointer = (side: "l" | "r") => {
           const wrist = side === "l" ? joints.lWrist : joints.rWrist;
@@ -570,7 +588,7 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
           buttonsConfig.push(
             {
               id: "pose" as const,
-              x: width * 0.36,
+              x: clampBtnX(btnCenterX - btnSpacing),
               labelEn: "POSE",
               labelJa: "ポーズあそび",
               isActive: false,
@@ -581,7 +599,7 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
             },
             {
               id: "trace" as const,
-              x: width * 0.50,
+              x: btnCenterX,
               labelEn: "TRACE",
               labelJa: "イライラぼう",
               isActive: false,
@@ -592,7 +610,7 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
             },
             {
               id: "kanji" as const,
-              x: width * 0.64,
+              x: clampBtnX(btnCenterX + btnSpacing),
               labelEn: "KANJI",
               labelJa: "かんじかき",
               isActive: false,
@@ -603,10 +621,12 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
             }
           );
         } else {
-          // In-game: show Quit button on top right (closer to center)
+          // In-game: Quit (and Done for kanji) flank the screen center. When Done
+          // is present they sit at ±0.5*spacing; Quit alone stays centered.
+          const inGameKanji = gameTypeRef.current === "kanji" && kanjiStateMirrorRef.current === "writing";
           buttonsConfig.push({
             id: "quit" as const,
-            x: width * 0.64,
+            x: inGameKanji ? clampBtnX(btnCenterX + btnSpacing * 0.5) : btnCenterX,
             labelEn: "QUIT",
             labelJa: "やめる",
             isActive: false,
@@ -615,11 +635,11 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
             }
           });
 
-          // In Kanji game: also show Done button on top left (closer to center)
-          if (gameTypeRef.current === "kanji" && kanjiStateMirrorRef.current === "writing") {
+          // In Kanji game: also show Done button on the opposite side of center
+          if (inGameKanji) {
             buttonsConfig.push({
               id: "done" as const,
-              x: width * 0.36,
+              x: clampBtnX(btnCenterX - btnSpacing * 0.5),
               labelEn: "DONE",
               labelJa: "できた！",
               isActive: false,
@@ -735,13 +755,17 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
             fSizeJa = br * 0.21;
           }
 
+          // Constrain label width so long Japanese labels (e.g. ポーズあそび)
+          // can't spill outside the circle: maxWidth shrinks text only when needed.
+          const labelMaxWidth = br * 1.5;
+
           ctx.font = `bold ${fSizeEn}px var(--font-sans)`;
           ctx.fillStyle = textColor;
-          ctx.fillText(labelEn, bx, by - br * 0.15);
-          
+          ctx.fillText(labelEn, bx, by - br * 0.15, labelMaxWidth);
+
           ctx.font = `bold ${fSizeJa}px var(--font-sans)`;
           ctx.fillStyle = isHovered ? colorActive : (isActive ? "#ffffff" : "var(--text-secondary)");
-          ctx.fillText(labelJa, bx, by + br * 0.2);
+          ctx.fillText(labelJa, bx, by + br * 0.2, labelMaxWidth);
 
           ctx.restore();
         };
