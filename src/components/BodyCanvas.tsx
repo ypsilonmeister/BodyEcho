@@ -562,7 +562,7 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
           buttonsConfig.push(
             {
               id: "pose" as const,
-              x: width * 0.28,
+              x: width * 0.36,
               labelEn: "POSE",
               labelJa: "ポーズあそび",
               isActive: false,
@@ -584,7 +584,7 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
             },
             {
               id: "kanji" as const,
-              x: width * 0.72,
+              x: width * 0.64,
               labelEn: "KANJI",
               labelJa: "かんじかき",
               isActive: false,
@@ -595,10 +595,10 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
             }
           );
         } else {
-          // In-game: show Quit button on top right
+          // In-game: show Quit button on top right (closer to center)
           buttonsConfig.push({
             id: "quit" as const,
-            x: width * 0.88,
+            x: width * 0.64,
             labelEn: "QUIT",
             labelJa: "やめる",
             isActive: false,
@@ -607,11 +607,11 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
             }
           });
 
-          // In Kanji game: also show Done button on top left
+          // In Kanji game: also show Done button on top left (closer to center)
           if (gameTypeRef.current === "kanji" && kanjiState === "writing") {
             buttonsConfig.push({
               id: "done" as const,
-              x: width * 0.12,
+              x: width * 0.36,
               labelEn: "DONE",
               labelJa: "できた！",
               isActive: false,
