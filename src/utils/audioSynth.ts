@@ -12,6 +12,11 @@ class AudioSynth {
   private traceGainNode: GainNode | null = null;
   private traceChordActive: boolean = false;
 
+  // Track continuous drawing synthesizer for Kanji Writing Mode
+  private drawOscillator: OscillatorNode | null = null;
+  private drawGainNode: GainNode | null = null;
+  private drawActive: boolean = false;
+
   constructor() {
     // Lazy initialize to bypass browser autoplay policy
   }
@@ -38,12 +43,15 @@ class AudioSynth {
    */
   public setVolume(val: number) {
     this.volume = Math.max(0, Math.min(1, val));
-    if (this.traceGainNode && this.traceChordActive && !this.isMuted) {
-      try {
-        const audioCtx = this.initContext();
+    try {
+      const audioCtx = this.initContext();
+      if (this.traceGainNode && this.traceChordActive && !this.isMuted) {
         this.traceGainNode.gain.setValueAtTime(0.08 * this.volume, audioCtx.currentTime);
-      } catch (e) {}
-    }
+      }
+      if (this.drawGainNode && this.drawActive && !this.isMuted) {
+        this.drawGainNode.gain.setValueAtTime(0.04 * this.volume, audioCtx.currentTime);
+      }
+    } catch (e) {}
   }
 
   /**
@@ -51,13 +59,17 @@ class AudioSynth {
    */
   public setMute(muted: boolean) {
     this.isMuted = muted;
-    if (this.traceGainNode) {
-      try {
-        const audioCtx = this.initContext();
+    try {
+      const audioCtx = this.initContext();
+      if (this.traceGainNode) {
         const targetGain = !this.isMuted && this.traceChordActive ? 0.08 * this.volume : 0;
         this.traceGainNode.gain.setValueAtTime(targetGain, audioCtx.currentTime);
-      } catch (e) {}
-    }
+      }
+      if (this.drawGainNode) {
+        const targetGain = !this.isMuted && this.drawActive ? 0.04 * this.volume : 0;
+        this.drawGainNode.gain.setValueAtTime(targetGain, audioCtx.currentTime);
+      }
+    } catch (e) {}
   }
 
   /**
@@ -289,6 +301,102 @@ class AudioSynth {
       duration: 0.12,
       gainStart: 0.22,
       freqEnd: 80 // fast sliding down pitch to simulate water drop
+    });
+  }
+
+  /**
+   * Start continuous drawing synthesizer for Kanji mode
+   */
+  public startDrawingSound() {
+    try {
+      const audioCtx = this.initContext();
+      this.stopDrawingSound(); // safety clear
+
+      this.drawGainNode = audioCtx.createGain();
+      this.drawGainNode.connect(audioCtx.destination);
+      this.drawGainNode.gain.setValueAtTime(0, audioCtx.currentTime);
+      this.drawActive = false;
+
+      this.drawOscillator = audioCtx.createOscillator();
+      this.drawOscillator.type = "sine";
+      this.drawOscillator.frequency.setValueAtTime(330, audioCtx.currentTime); // default E4
+      this.drawOscillator.connect(this.drawGainNode);
+      this.drawOscillator.start(audioCtx.currentTime);
+    } catch (e) {
+      console.warn("Failed to start drawing sound", e);
+    }
+  }
+
+  /**
+   * Set drawing sound activity and frequency
+   */
+  public setDrawingSoundActive(active: boolean, freq = 330) {
+    this.drawActive = active;
+    if (!this.drawGainNode || !this.drawOscillator) return;
+
+    try {
+      const audioCtx = this.initContext();
+      const targetGain = active && !this.isMuted ? 0.04 * this.volume : 0;
+      
+      // Smoothly ramp volume and frequency
+      this.drawGainNode.gain.linearRampToValueAtTime(targetGain, audioCtx.currentTime + 0.1);
+      if (active) {
+        this.drawOscillator.frequency.setTargetAtTime(freq, audioCtx.currentTime, 0.08);
+      }
+    } catch (e) {
+      console.warn("Failed to change drawing sound state", e);
+    }
+  }
+
+  /**
+   * Stop continuous drawing sound
+   */
+  public stopDrawingSound() {
+    try {
+      this.drawActive = false;
+      if (this.drawOscillator) {
+        try {
+          this.drawOscillator.stop();
+        } catch (e) {}
+        this.drawOscillator = null;
+      }
+      if (this.drawGainNode) {
+        try {
+          this.drawGainNode.disconnect();
+        } catch (e) {}
+        this.drawGainNode = null;
+      }
+    } catch (e) {
+      console.warn("Failed to stop drawing sound", e);
+    }
+  }
+
+  /**
+   * Sound effect: quick sci-fi sweep down when canvas is cleared
+   */
+  public playClapClear() {
+    this.playTone({
+      freq: 480,
+      type: 'triangle',
+      duration: 0.35,
+      gainStart: 0.2,
+      freqEnd: 80
+    });
+  }
+
+  /**
+   * Sound effect: nice success pentatonic scale sweep for Kanji completion
+   */
+  public playKanjiSuccess() {
+    const notes = [523.25, 587.33, 659.25, 783.99, 880.00, 1046.50]; // C5, D5, E5, G5, A5, C6
+    notes.forEach((freq, index) => {
+      this.playTone({
+        freq,
+        type: 'sine',
+        duration: 0.5,
+        gainStart: 0.1,
+        delay: index * 0.06
+      });
     });
   }
 }

@@ -63,7 +63,7 @@ export const getTracePathPoint = (
 interface UseSlowTraceGameProps {
   calibrated: boolean;
   gameMode: boolean;
-  gameType: "pose" | "trace";
+  gameType: "pose" | "trace" | "kanji";
   traceHand: "left" | "right";
   tracePathType: "horizontal" | "vertical" | "sine" | "circle";
   traceSpeed: "slow" | "medium" | "fast";

@@ -11,6 +11,7 @@ import {
   Camera
 } from "lucide-react";
 import type { PoseComplexity } from "../utils/poseTracker";
+import { kanjiList, KANJI_CATEGORIES } from "./games/useKanjiWritingGame";
 
 interface ControlPanelProps {
   isOpen: boolean;
@@ -33,8 +34,8 @@ interface ControlPanelProps {
   setCameraBackground: (val: "calibration" | "always" | "never") => void;
   gameMode: boolean;
   setGameMode: (val: boolean) => void;
-  gameType: "pose" | "trace";
-  setGameType: (val: "pose" | "trace") => void;
+  gameType: "pose" | "trace" | "kanji";
+  setGameType: (val: "pose" | "trace" | "kanji") => void;
   traceHand: "left" | "right";
   setTraceHand: (val: "left" | "right") => void;
   tracePathType: "horizontal" | "vertical" | "sine" | "circle";
@@ -46,6 +47,14 @@ interface ControlPanelProps {
   devices: MediaDeviceInfo[];
   selectedDeviceId: string;
   setSelectedDeviceId: (val: string) => void;
+  kanjiHand: "left" | "right";
+  setKanjiHand: (val: "left" | "right") => void;
+  kanjiChar: string;
+  setKanjiChar: (val: string) => void;
+  kanjiBrushStyle: "neon" | "flame" | "rainbow";
+  setKanjiBrushStyle: (val: "neon" | "flame" | "rainbow") => void;
+  kanjiTriggerGesture: "always" | "fist" | "index";
+  setKanjiTriggerGesture: (val: "always" | "fist" | "index") => void;
 }
 
 export const ControlPanel: React.FC<ControlPanelProps> = ({
@@ -82,6 +91,14 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   devices,
   selectedDeviceId,
   setSelectedDeviceId,
+  kanjiHand,
+  setKanjiHand,
+  kanjiChar,
+  setKanjiChar,
+  kanjiBrushStyle,
+  setKanjiBrushStyle,
+  kanjiTriggerGesture,
+  setKanjiTriggerGesture,
 }) => {
   const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = parseFloat(e.target.value);
@@ -202,11 +219,12 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
             <label>Game Type / ゲームの選択</label>
             <select
               value={gameType}
-              onChange={(e) => setGameType(e.target.value as "pose" | "trace")}
+              onChange={(e) => setGameType(e.target.value as "pose" | "trace" | "kanji")}
               className="control-select"
             >
               <option value="pose">ポーズ合わせ (Pose Matching)</option>
               <option value="trace">イライラ棒 (Slow Trace)</option>
+              <option value="kanji">AR漢字かきかた (AR Kanji Writing)</option>
             </select>
           </div>
         )}
@@ -254,6 +272,76 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
             </div>
           </div>
         )}
+
+        {/* Kanji Specific Settings */}
+        {gameMode && gameType === "kanji" && (() => {
+          const kanjiByCategory = kanjiList.reduce((acc, item) => {
+            if (!acc[item.category]) acc[item.category] = [];
+            acc[item.category].push(item);
+            return acc;
+          }, {} as Record<string, typeof kanjiList>);
+
+          return (
+            <div className="settings-group" style={{ paddingLeft: 12, borderLeft: "2px solid var(--color-right)", display: "flex", flexDirection: "column", gap: 12 }}>
+              <div>
+                <label>かんじのせんたく / Select Kanji</label>
+                <select
+                  value={kanjiChar}
+                  onChange={(e) => setKanjiChar(e.target.value)}
+                  className="control-select"
+                >
+                  {Object.entries(kanjiByCategory).map(([cat, list]) => (
+                    <optgroup key={cat} label={KANJI_CATEGORIES[cat]}>
+                      {list.map(k => (
+                        <option key={k.char} value={k.char}>
+                          {k.char} ({k.reading} - {k.meaning})
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label>Tracked Hand / なぞる手</label>
+                <select
+                  value={kanjiHand}
+                  onChange={(e) => setKanjiHand(e.target.value as "left" | "right")}
+                  className="control-select"
+                >
+                  <option value="right">右手 (Right Hand)</option>
+                  <option value="left">左手 (Left Hand)</option>
+                </select>
+              </div>
+
+              <div>
+                <label>Drawing Trigger / 描画のじょうけん</label>
+                <select
+                  value={kanjiTriggerGesture}
+                  onChange={(e) => setKanjiTriggerGesture(e.target.value as "always" | "fist" | "index")}
+                  className="control-select"
+                >
+                  <option value="always">常に描画 (Always Draw)</option>
+                  <option value="fist">手をグーに握る (Fist to Draw)</option>
+                  <option value="index">人差し指を立てる (Index to Draw)</option>
+                </select>
+              </div>
+
+              <div>
+                <label>Brush Style / ふでのエフェクト</label>
+                <select
+                  value={kanjiBrushStyle}
+                  onChange={(e) => setKanjiBrushStyle(e.target.value as "neon" | "flame" | "rainbow")}
+                  className="control-select"
+                >
+                  <option value="neon">ネオン (Neon Trace)</option>
+                  <option value="flame">ほのおの粒子 (Flame Particle)</option>
+                  <option value="rainbow">にじいろグロウ (Rainbow Glow)</option>
+                </select>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Stretch Highlights Toggle */}
         <div className="settings-group">

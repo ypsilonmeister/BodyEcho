@@ -20,11 +20,17 @@ function App() {
   const [complexity, setComplexity] = useState<PoseComplexity>("lite");
   const [cameraBackground, setCameraBackground] = useState<"calibration" | "always" | "never">("calibration");
   const [gameMode, setGameMode] = useState<boolean>(false);
-  const [gameType, setGameType] = useState<"pose" | "trace">("pose");
+  const [gameType, setGameType] = useState<"pose" | "trace" | "kanji">("pose");
   const [traceHand, setTraceHand] = useState<"left" | "right">("right");
   const [tracePathType, setTracePathType] = useState<"horizontal" | "vertical" | "sine" | "circle">("horizontal");
   const [traceSpeed, setTraceSpeed] = useState<"slow" | "medium" | "fast">("medium");
   const [stretchHighlights, setStretchHighlights] = useState<boolean>(true);
+
+  // Kanji writing specific states
+  const [kanjiHand, setKanjiHand] = useState<"left" | "right">("right");
+  const [kanjiChar, setKanjiChar] = useState<string>("雨");
+  const [kanjiBrushStyle, setKanjiBrushStyle] = useState<"neon" | "flame" | "rainbow">("neon");
+  const [kanjiTriggerGesture, setKanjiTriggerGesture] = useState<"always" | "fist" | "index">("always");
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>("");
   
@@ -364,6 +370,10 @@ function App() {
           tracePathType={tracePathType}
           traceSpeed={traceSpeed}
           stretchHighlights={stretchHighlights}
+          kanjiHand={kanjiHand}
+          kanjiChar={kanjiChar}
+          kanjiBrushStyle={kanjiBrushStyle}
+          kanjiTriggerGesture={kanjiTriggerGesture}
         />
       )}
 
@@ -403,6 +413,14 @@ function App() {
           devices={devices}
           selectedDeviceId={selectedDeviceId}
           setSelectedDeviceId={setSelectedDeviceId}
+          kanjiHand={kanjiHand}
+          setKanjiHand={setKanjiHand}
+          kanjiChar={kanjiChar}
+          setKanjiChar={setKanjiChar}
+          kanjiBrushStyle={kanjiBrushStyle}
+          setKanjiBrushStyle={setKanjiBrushStyle}
+          kanjiTriggerGesture={kanjiTriggerGesture}
+          setKanjiTriggerGesture={setKanjiTriggerGesture}
         />
       )}
 
@@ -423,10 +441,16 @@ function App() {
             </>
           ) : (
             <>
-              <h3>Mirror Active</h3>
-              <p>体を動かして、ラインがどう動くか見てみよう！</p>
+              <h3>{gameMode && gameType === "kanji" ? "AR漢字かきかたモード" : "Mirror Active"}</h3>
+              <p>
+                {gameMode && gameType === "kanji" 
+                  ? "空中に大きな字を描いてみよう！" 
+                  : "体を動かして、ラインがどう動くか見てみよう！"}
+              </p>
               <div className="y-pose-indicator">
-                やり直すときは、両手をあたまの上にバンザイしてね（Yのポーズ）
+                {gameMode && gameType === "kanji"
+                  ? "両手を近づけてパン！とたたくとクリアできるよ 👏"
+                  : "やり直すときは、両手をあたまの上にバンザイしてね（Yのポーズ）"}
               </div>
             </>
           )}

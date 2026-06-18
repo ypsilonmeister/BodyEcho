@@ -2,6 +2,7 @@ import React, { useRef, useEffect } from "react";
 import { audioSynth } from "../utils/audioSynth";
 import usePoseMatchingGame from "./games/usePoseMatchingGame";
 import useSlowTraceGame from "./games/useSlowTraceGame";
+import useKanjiWritingGame, { kanjiList } from "./games/useKanjiWritingGame";
 
 // Vector Angle calculation helper (pure utility exported for game hooks)
 export const calculateAngle = (
@@ -38,11 +39,15 @@ interface BodyCanvasProps {
   cameraBackground: "calibration" | "always" | "never";
   gameMode: boolean;
   setGameMode: (val: boolean) => void;
-  gameType: "pose" | "trace";
+  gameType: "pose" | "trace" | "kanji";
   traceHand: "left" | "right";
   tracePathType: "horizontal" | "vertical" | "sine" | "circle";
   traceSpeed: "slow" | "medium" | "fast";
   stretchHighlights: boolean;
+  kanjiHand: "left" | "right";
+  kanjiChar: string;
+  kanjiBrushStyle: "neon" | "flame" | "rainbow";
+  kanjiTriggerGesture: "always" | "fist" | "index";
 }
 
 interface Point2D {
@@ -91,6 +96,10 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
   tracePathType,
   traceSpeed,
   stretchHighlights,
+  kanjiHand,
+  kanjiChar,
+  kanjiBrushStyle,
+  kanjiTriggerGesture,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -151,6 +160,20 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
     setGameMode
   });
 
+  const {
+    detectedGesture,
+    clearCanvas: clearKanjiCanvas,
+    updateAndDrawKanjiGame
+  } = useKanjiWritingGame({
+    calibrated,
+    gameMode,
+    gameType,
+    kanjiHand,
+    kanjiChar,
+    kanjiBrushStyle,
+    kanjiTriggerGesture
+  });
+
   const btnHoverProgressRef = useRef<number>(0); // 0 to 100 for Air Button
 
   // Persistent smoothed joints array (for 33 landmarks)
@@ -175,6 +198,8 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
   const stretchHighlightsRef = useRef(stretchHighlights);
   const onResetTriggeredRef = useRef(onResetTriggered);
   const setCalibratedRef = useRef(setCalibrated);
+  const kanjiCharRef = useRef(kanjiChar);
+  const kanjiHandRef = useRef(kanjiHand);
 
   useEffect(() => {
     landmarksRef.current = landmarks;
@@ -193,7 +218,9 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
     stretchHighlightsRef.current = stretchHighlights;
     onResetTriggeredRef.current = onResetTriggered;
     setCalibratedRef.current = setCalibrated;
-  }, [landmarks, calibrated, showTrails, theme, autoCalibMode, videoElement, cameraBackground, gameMode, setGameMode, gameType, traceHand, tracePathType, traceSpeed, stretchHighlights, onResetTriggered, setCalibrated]);
+    kanjiCharRef.current = kanjiChar;
+    kanjiHandRef.current = kanjiHand;
+  }, [landmarks, calibrated, showTrails, theme, autoCalibMode, videoElement, cameraBackground, gameMode, setGameMode, gameType, traceHand, tracePathType, traceSpeed, stretchHighlights, onResetTriggered, setCalibrated, kanjiChar, kanjiHand]);
 
   // Track calibration toggle state
   const prevCalibrated = useRef<boolean>(calibrated);
@@ -209,6 +236,7 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
     btnHoverProgressRef.current = 0;
     resetPoseGame();
     resetTraceGame();
+    clearKanjiCanvas();
   };
 
   // Canvas scaling and resizing
@@ -431,6 +459,12 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
           rKnee: getCanvasPoint(26),
           lAnkle: getCanvasPoint(27),
           rAnkle: getCanvasPoint(28),
+          lIndex: getCanvasPoint(19),
+          rIndex: getCanvasPoint(20),
+          lPinky: getCanvasPoint(17),
+          rPinky: getCanvasPoint(18),
+          lThumb: getCanvasPoint(21),
+          rThumb: getCanvasPoint(22),
         };
 
         // Air Button (Hover Trigger) Logic
@@ -615,6 +649,52 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
         updateAndDrawRipples(ctx, height);
         updateAndDrawParticles(ctx);
 
+        // Draw Kanji guide outline on the canvas background
+        if (gameTypeRef.current === "kanji" && gameModeRef.current) {
+          const activeKanji = kanjiList.find(k => k.char === kanjiCharRef.current) || kanjiList[0];
+          
+          ctx.save();
+          const cX = width / 2;
+          const cY = height * 0.48;
+          
+          // Draw school kanji-grid boundary
+          ctx.fillStyle = "rgba(255, 255, 255, 0.02)";
+          ctx.strokeStyle = "rgba(255, 255, 255, 0.06)";
+          ctx.lineWidth = 2;
+          ctx.lineJoin = "round";
+          const boxSize = height * 0.52;
+          ctx.beginPath();
+          ctx.roundRect(cX - boxSize / 2, cY - boxSize / 2, boxSize, boxSize, 16);
+          ctx.fill();
+          ctx.stroke();
+
+          // Draw grid crosshairs
+          ctx.beginPath();
+          ctx.strokeStyle = "rgba(255, 255, 255, 0.04)";
+          ctx.setLineDash([5, 5]);
+          ctx.moveTo(cX - boxSize / 2, cY);
+          ctx.lineTo(cX + boxSize / 2, cY);
+          ctx.moveTo(cX, cY - boxSize / 2);
+          ctx.lineTo(cX, cY + boxSize / 2);
+          ctx.stroke();
+          
+          // Render character outline guide
+          ctx.font = `bold ${height * 0.44}px Outfit, 'Hiragino Kaku Gothic ProN', 'Yu Gothic', sans-serif`;
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          
+          ctx.shadowBlur = 10;
+          const brushColor = kanjiHandRef.current === "right" ? colors.right : colors.left;
+          ctx.shadowColor = brushColor;
+          ctx.strokeStyle = "rgba(255, 255, 255, 0.08)";
+          ctx.lineWidth = 3;
+          ctx.strokeText(activeKanji.char, cX, cY);
+          
+          ctx.fillStyle = "rgba(255, 255, 255, 0.12)";
+          ctx.fillText(activeKanji.char, cX, cY);
+          ctx.restore();
+        }
+
         // 5. Draw Skeleton Bones
         ctx.shadowBlur = 15;
         ctx.lineCap = "round";
@@ -706,6 +786,8 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
             updateAndDrawPoseGame(ctx, joints, width, height, colors, jointRadius, triggerFireworks);
           } else if (gameTypeRef.current === "trace") {
             updateAndDrawTraceGame(ctx, joints, width, height, colors, particlesRef);
+          } else if (gameTypeRef.current === "kanji") {
+            updateAndDrawKanjiGame(ctx, joints, width, height, colors, particlesRef, triggerFireworks);
           }
         }
 
@@ -1214,6 +1296,93 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
             marginTop: 4
           }}>
             {traceHand === "right" ? "右手" : "左手"}で光の球をゆっくりおいかけてね！
+          </div>
+        </div>
+      )}
+
+      {/* AR Kanji Mode instruction and gesture status overlay */}
+      {calibrated && gameMode && gameType === "kanji" && (
+        <div style={{
+          position: "absolute",
+          top: 76,
+          left: "50%",
+          transform: "translateX(-50%)",
+          fontFamily: "var(--font-sans)",
+          textAlign: "center",
+          zIndex: 5,
+          pointerEvents: "none"
+        }}>
+          <div style={{
+            fontSize: 12,
+            fontWeight: 700,
+            color: kanjiHand === "right" ? "var(--color-right)" : "var(--color-left)",
+            letterSpacing: 1.5,
+            textTransform: "uppercase",
+            marginBottom: 2
+          }}>
+            AR KANJI WRITING / 空中漢字かきかた
+          </div>
+          <div style={{
+            fontSize: 22,
+            fontWeight: 700,
+            color: "#ffffff",
+            textShadow: "0 0 10px rgba(255, 255, 255, 0.2)"
+          }}>
+            {(() => {
+              const activeKanji = kanjiList.find(k => k.char === kanjiChar) || kanjiList[0];
+              return `「${activeKanji.char}」 (${activeKanji.reading})`;
+            })()}
+          </div>
+          <div style={{
+            fontSize: 13,
+            color: "var(--text-secondary)",
+            marginTop: 4,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: 4
+          }}>
+            <div>
+              {kanjiHand === "right" ? "右手" : "左手"}でなぞって描こう！
+            </div>
+            
+            {/* Gesture feedback badge */}
+            <div style={{
+              marginTop: 6,
+              padding: "3px 10px",
+              borderRadius: "12px",
+              background: detectedGesture === "fist" || detectedGesture === "pointing" 
+                ? "rgba(0, 255, 102, 0.15)" 
+                : "rgba(255, 255, 255, 0.08)",
+              border: `1px solid ${detectedGesture === "fist" || detectedGesture === "pointing" 
+                ? "rgba(0, 255, 102, 0.3)" 
+                : "rgba(255, 255, 255, 0.1)"}`,
+              fontSize: 11,
+              fontFamily: "var(--font-sans)",
+              fontWeight: 600,
+              color: detectedGesture === "fist" || detectedGesture === "pointing" 
+                ? "#00ff66" 
+                : "var(--text-secondary)",
+              display: "flex",
+              alignItems: "center",
+              gap: 4
+            }}>
+              <span>
+                {detectedGesture === "pointing" && "☝️ さす"}
+                {detectedGesture === "fist" && "✊ グー"}
+                {detectedGesture === "open" && "✋ パー (ホバー)"}
+                {detectedGesture === "unknown" && "❓ がくしゅう中"}
+              </span>
+              <span>
+                {kanjiTriggerGesture === "always" ? "(常に描く)" : 
+                 kanjiTriggerGesture === "fist" ? (detectedGesture === "fist" ? "[かく]" : "[うかす]") : 
+                 (detectedGesture === "pointing" ? "[かく]" : "[うかす]")}
+              </span>
+            </div>
+            
+            <div style={{ fontSize: 10, color: "rgba(255, 255, 255, 0.3)", marginTop: 4 }}>
+              両手を近づけて「パン！」とたたくとクリアできるよ 👏
+            </div>
           </div>
         </div>
       )}
