@@ -26,6 +26,8 @@ export class PoseTracker {
   private animationFrameId: number | null = null;
   private isTrackerRunning = false;
   private isInitializing = false;
+  private lastDetectionDuration = 25; // ms (smooth moving average)
+  private lastDetectionTime = 0; // ms
 
   constructor() {}
 
@@ -132,6 +134,8 @@ export class PoseTracker {
     this.isTrackerRunning = true;
 
     let lastVideoTime = -1;
+    this.lastDetectionTime = 0;
+    this.lastDetectionDuration = 25; // Reset performance tracking on start
 
     const predictLoop = () => {
       if (!this.isTrackerRunning) return;
@@ -139,10 +143,25 @@ export class PoseTracker {
       try {
         if (this.poseLandmarker && videoElement.readyState >= 2) {
           const currentTime = videoElement.currentTime;
-          if (currentTime !== lastVideoTime) {
+          const now = performance.now();
+          
+          // Calculate dynamic interval based on average detection time
+          // Target CPU usage is ~40% (interval = duration / 0.40)
+          // Clamp interval between 33ms (30 FPS) and 120ms (8.3 FPS)
+          const targetInterval = this.lastDetectionDuration / 0.40;
+          const minInterval = Math.max(33, Math.min(120, targetInterval));
+
+          if (currentTime !== lastVideoTime && now - this.lastDetectionTime >= minInterval) {
             lastVideoTime = currentTime;
+            this.lastDetectionTime = now;
+
             const startTimeMs = performance.now();
             const results = this.poseLandmarker.detectForVideo(videoElement, startTimeMs);
+            const duration = performance.now() - startTimeMs;
+            
+            // Exponential moving average to smooth out duration spikes (10% weight to new frame)
+            this.lastDetectionDuration = this.lastDetectionDuration * 0.9 + duration * 0.1;
+
             onResults(results);
           }
         }

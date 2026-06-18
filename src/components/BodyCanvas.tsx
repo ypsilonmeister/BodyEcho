@@ -61,13 +61,13 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   // Calibration State
-  const [calibrationProgress, setCalibrationProgress] = useState<number>(0);
+  const calibrationProgressRef = useRef<number>(0);
   const calibrationTimerRef = useRef<number | null>(null);
   const isCalibratingRef = useRef<boolean>(false);
   const calibStartTimeRef = useRef<number>(0);
 
   // Gesture Reset State
-  const [resetProgress, setResetProgress] = useState<number>(0);
+  const resetProgressRef = useRef<number>(0);
   const resetTimerRef = useRef<number | null>(null);
   const isResettingRef = useRef<boolean>(false);
   const resetStartTimeRef = useRef<number>(0);
@@ -98,9 +98,43 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
 
   // Game Mode States
   const [activePoseIndex, setActivePoseIndex] = useState<number>(0);
-  const [matchProgress, setMatchProgress] = useState<number>(0); // 0 to 100
+  const matchProgressRef = useRef<number>(0); // 0 to 100
   const isMatchingRef = useRef<boolean>(false);
   const matchStartRef = useRef<number>(0);
+
+  // Persistent smoothed joints array (for 33 landmarks)
+  const smoothedJointsRef = useRef<Array<{ x: number; y: number; z: number; visibility: number } | null>>(
+    Array(33).fill(null)
+  );
+
+  // Sync props and state into refs to avoid recreating the continuous 60fps render loop
+  const landmarksRef = useRef(landmarks);
+  const calibratedRef = useRef(calibrated);
+  const showTrailsRef = useRef(showTrails);
+  const themeRef = useRef(theme);
+  const autoCalibModeRef = useRef(autoCalibMode);
+  const videoElementRef = useRef(videoElement);
+  const cameraBackgroundRef = useRef(cameraBackground);
+  const gameModeRef = useRef(gameMode);
+  const stretchHighlightsRef = useRef(stretchHighlights);
+  const activePoseIndexRef = useRef(activePoseIndex);
+  const onResetTriggeredRef = useRef(onResetTriggered);
+  const setCalibratedRef = useRef(setCalibrated);
+
+  useEffect(() => {
+    landmarksRef.current = landmarks;
+    calibratedRef.current = calibrated;
+    showTrailsRef.current = showTrails;
+    themeRef.current = theme;
+    autoCalibModeRef.current = autoCalibMode;
+    videoElementRef.current = videoElement;
+    cameraBackgroundRef.current = cameraBackground;
+    gameModeRef.current = gameMode;
+    stretchHighlightsRef.current = stretchHighlights;
+    activePoseIndexRef.current = activePoseIndex;
+    onResetTriggeredRef.current = onResetTriggered;
+    setCalibratedRef.current = setCalibrated;
+  }, [landmarks, calibrated, showTrails, theme, autoCalibMode, videoElement, cameraBackground, gameMode, stretchHighlights, activePoseIndex, onResetTriggered, setCalibrated]);
 
   // Track calibration toggle state
   const prevCalibrated = useRef<boolean>(calibrated);
@@ -113,7 +147,7 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
     rightAnkleTrail.current = [];
     ripplesRef.current = [];
     particlesRef.current = [];
-    setMatchProgress(0);
+    matchProgressRef.current = 0;
     isMatchingRef.current = false;
   };
 
@@ -416,7 +450,7 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
 
   // Helper: Filter target poses based on calibration mode (seated/full)
   const getActivePoses = () => {
-    if (autoCalibMode === "upper") {
+    if (autoCalibModeRef.current === "upper") {
       // Exclude Flamingo pose which requires ankle balance tracking
       return gamePoses.filter(pose => pose.name !== "FLAMINGO");
     }
@@ -465,339 +499,374 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
     }
   };
 
-  // Render loop
+  // Continuous 60 FPS render loop
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+    let animationFrameId: number;
 
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+    const render = () => {
+      const canvas = canvasRef.current;
+      if (!canvas) {
+        animationFrameId = requestAnimationFrame(render);
+        return;
+      }
 
-    const width = canvas.width / (window.devicePixelRatio || 1);
-    const height = canvas.height / (window.devicePixelRatio || 1);
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        animationFrameId = requestAnimationFrame(render);
+        return;
+      }
 
-    // Clear background
-    ctx.clearRect(0, 0, width, height);
-    ctx.fillStyle = "rgba(0, 0, 0, 0)";
-    ctx.fillRect(0, 0, width, height);
+      const width = canvas.width / (window.devicePixelRatio || 1);
+      const height = canvas.height / (window.devicePixelRatio || 1);
 
-    // Render camera feed as background if requested
-    const shouldShowCamera = cameraBackground === "always" || (!calibrated && cameraBackground === "calibration");
-    if (shouldShowCamera && videoElement && videoElement.readyState >= 2) {
-      ctx.save();
-      ctx.translate(width, 0);
-      ctx.scale(-1, 1);
-      ctx.globalAlpha = 0.25;
-      ctx.drawImage(videoElement, 0, 0, width, height);
-      ctx.restore();
-    }
+      // Clear canvas background
+      ctx.clearRect(0, 0, width, height);
+      ctx.fillStyle = "rgba(0, 0, 0, 0)";
+      ctx.fillRect(0, 0, width, height);
 
-    // Draw grid background guidelines if not calibrated
-    if (!calibrated) {
-      drawCalibrationOverlay(ctx, width, height);
-    }
+      // Render camera feed as background if requested
+      const shouldShowCamera = cameraBackgroundRef.current === "always" || 
+        (!calibratedRef.current && cameraBackgroundRef.current === "calibration");
+      if (shouldShowCamera && videoElementRef.current && videoElementRef.current.readyState >= 2) {
+        ctx.save();
+        ctx.translate(width, 0);
+        ctx.scale(-1, 1);
+        ctx.globalAlpha = 0.25;
+        ctx.drawImage(videoElementRef.current, 0, 0, width, height);
+        ctx.restore();
+      }
 
-    if (!landmarks || landmarks.length === 0) {
-      cancelCalibration();
-      cancelReset();
-      return;
-    }
+      // Draw grid background guidelines if not calibrated
+      if (!calibratedRef.current) {
+        drawCalibrationOverlay(ctx, width, height);
+      }
 
-    const pose = landmarks[0];
+      const activeLandmarks = landmarksRef.current;
 
-    // Check calibration & reset states
-    handleCalibrationCheck(pose);
-    handleResetCheck(pose);
+      if (!activeLandmarks || activeLandmarks.length === 0) {
+        cancelCalibration();
+        cancelReset();
+        smoothedJointsRef.current.fill(null);
+        animationFrameId = requestAnimationFrame(render);
+        return;
+      }
 
-    if (calibrated) {
-      // Retrieve theme color values
-      const style = getComputedStyle(document.body);
-      const colorRight = style.getPropertyValue("--color-right").trim() || "#00f0ff";
-      const colorLeft = style.getPropertyValue("--color-left").trim() || "#ff007f";
-      const colorCenter = style.getPropertyValue("--color-center").trim() || "#ffffff";
-      const colorRightGlow = style.getPropertyValue("--color-right-glow").trim() || "rgba(0, 240, 255, 0.4)";
-      const colorLeftGlow = style.getPropertyValue("--color-left-glow").trim() || "rgba(255, 0, 127, 0.4)";
-      const colorCenterGlow = style.getPropertyValue("--color-center-glow").trim() || "rgba(255, 255, 255, 0.3)";
+      const pose = activeLandmarks[0];
 
-      const colors = {
-        right: colorRight,
-        left: colorLeft,
-        center: colorCenter,
-        rightGlow: colorRightGlow,
-        leftGlow: colorLeftGlow,
-        centerGlow: colorCenterGlow,
-      };
+      // Update smoothed joints based on the new raw pose coordinates using lerp
+      for (let i = 0; i < 33; i++) {
+        const rawPt = pose[i];
+        if (!rawPt) {
+          smoothedJointsRef.current[i] = null;
+          continue;
+        }
 
-      const jointRadius = height * 0.011;
-      const boneWidth = height * 0.005;
+        const targetX = (1.0 - rawPt.x) * width;
+        const targetY = rawPt.y * height;
+        const targetZ = rawPt.z;
+        const targetVis = rawPt.visibility !== undefined ? rawPt.visibility : 1.0;
 
-      const getCanvasPoint = (index: number) => {
-        const pt = pose[index];
-        if (!pt) return null;
-        return {
-          x: (1.0 - pt.x) * width,
-          y: pt.y * height,
-          z: pt.z,
-          visibility: pt.visibility !== undefined ? pt.visibility : 1.0,
+        if (!smoothedJointsRef.current[i]) {
+          smoothedJointsRef.current[i] = { x: targetX, y: targetY, z: targetZ, visibility: targetVis };
+        } else {
+          const current = smoothedJointsRef.current[i]!;
+          const lerpFactor = 0.25; // 25% smooth linear interpolation per frame
+          current.x += (targetX - current.x) * lerpFactor;
+          current.y += (targetY - current.y) * lerpFactor;
+          current.z += (targetZ - current.z) * lerpFactor;
+          current.visibility += (targetVis - current.visibility) * lerpFactor;
+        }
+      }
+
+      // Check calibration & reset states
+      handleCalibrationCheck(pose);
+      handleResetCheck(pose);
+
+      if (calibratedRef.current) {
+        // Retrieve theme color values
+        const style = getComputedStyle(document.body);
+        const colorRight = style.getPropertyValue("--color-right").trim() || "#00f0ff";
+        const colorLeft = style.getPropertyValue("--color-left").trim() || "#ff007f";
+        const colorCenter = style.getPropertyValue("--color-center").trim() || "#ffffff";
+        const colorRightGlow = style.getPropertyValue("--color-right-glow").trim() || "rgba(0, 240, 255, 0.4)";
+        const colorLeftGlow = style.getPropertyValue("--color-left-glow").trim() || "rgba(255, 0, 127, 0.4)";
+        const colorCenterGlow = style.getPropertyValue("--color-center-glow").trim() || "rgba(255, 255, 255, 0.3)";
+
+        const colors = {
+          right: colorRight,
+          left: colorLeft,
+          center: colorCenter,
+          rightGlow: colorRightGlow,
+          leftGlow: colorLeftGlow,
+          centerGlow: colorCenterGlow,
         };
-      };
 
-      const joints = {
-        nose: getCanvasPoint(0),
-        lEye: getCanvasPoint(2),
-        rEye: getCanvasPoint(5),
-        lShoulder: getCanvasPoint(11),
-        rShoulder: getCanvasPoint(12),
-        lElbow: getCanvasPoint(13),
-        rElbow: getCanvasPoint(14),
-        lWrist: getCanvasPoint(15),
-        rWrist: getCanvasPoint(16),
-        lHip: getCanvasPoint(23),
-        rHip: getCanvasPoint(24),
-        lKnee: getCanvasPoint(25),
-        rKnee: getCanvasPoint(26),
-        lAnkle: getCanvasPoint(27),
-        rAnkle: getCanvasPoint(28),
-      };
+        const jointRadius = height * 0.011;
+        const boneWidth = height * 0.005;
 
-      // 1. Calculate Joint Angles
-      const angles = {
-        lElbow: calculateAngle(joints.lShoulder, joints.lElbow, joints.lWrist),
-        rElbow: calculateAngle(joints.rShoulder, joints.rElbow, joints.rWrist),
-        lKnee: calculateAngle(joints.lHip, joints.lKnee, joints.lAnkle),
-        rKnee: calculateAngle(joints.rHip, joints.rKnee, joints.rAnkle),
-      };
+        const getCanvasPoint = (index: number) => {
+          const pt = smoothedJointsRef.current[index];
+          if (!pt) return null;
+          return {
+            x: pt.x,
+            y: pt.y,
+            z: pt.z,
+            visibility: pt.visibility,
+          };
+        };
 
-      // 2. Trigonometry Stretches Feedback (Ripples & Clicks)
-      if (stretchHighlights) {
-        const checkStretch = (
-          angle: number,
-          jointPt: any,
-          sideKey: "lElbow" | "rElbow" | "lKnee" | "rKnee",
-          color: string
-        ) => {
-          if (!jointPt || jointPt.visibility < 0.6) return;
-          const isStraightNow = angle > 166;
-          
-          if (isStraightNow) {
-            // Trigger ripple once on initial transition
-            if (!prevStraightRef.current[sideKey]) {
-              prevStraightRef.current[sideKey] = true;
-              audioSynth.playJointClick(sideKey.startsWith("l") ? 680 : 880);
-              
-              // Spawn a neon ripple ring
-              ripplesRef.current.push({
-                x: jointPt.x,
-                y: jointPt.y,
-                radius: jointRadius,
-                maxRadius: jointRadius * 4,
-                alpha: 0.8,
-                color: color,
-              });
+        const joints = {
+          nose: getCanvasPoint(0),
+          lEye: getCanvasPoint(2),
+          rEye: getCanvasPoint(5),
+          lShoulder: getCanvasPoint(11),
+          rShoulder: getCanvasPoint(12),
+          lElbow: getCanvasPoint(13),
+          rElbow: getCanvasPoint(14),
+          lWrist: getCanvasPoint(15),
+          rWrist: getCanvasPoint(16),
+          lHip: getCanvasPoint(23),
+          rHip: getCanvasPoint(24),
+          lKnee: getCanvasPoint(25),
+          rKnee: getCanvasPoint(26),
+          lAnkle: getCanvasPoint(27),
+          rAnkle: getCanvasPoint(28),
+        };
+
+        // 1. Calculate Joint Angles
+        const angles = {
+          lElbow: calculateAngle(joints.lShoulder, joints.lElbow, joints.lWrist),
+          rElbow: calculateAngle(joints.rShoulder, joints.rElbow, joints.rWrist),
+          lKnee: calculateAngle(joints.lHip, joints.lKnee, joints.lAnkle),
+          rKnee: calculateAngle(joints.rHip, joints.rKnee, joints.rAnkle),
+        };
+
+        // 2. Trigonometry Stretches Feedback (Ripples & Clicks)
+        if (stretchHighlightsRef.current) {
+          const checkStretch = (
+            angle: number,
+            jointPt: any,
+            sideKey: "lElbow" | "rElbow" | "lKnee" | "rKnee",
+            color: string
+          ) => {
+            if (!jointPt || jointPt.visibility < 0.6) return;
+            const isStraightNow = angle > 166;
+            
+            if (isStraightNow) {
+              // Trigger ripple once on initial transition
+              if (!prevStraightRef.current[sideKey]) {
+                prevStraightRef.current[sideKey] = true;
+                audioSynth.playJointClick(sideKey.startsWith("l") ? 680 : 880);
+                
+                // Spawn a neon ripple ring
+                ripplesRef.current.push({
+                  x: jointPt.x,
+                  y: jointPt.y,
+                  radius: jointRadius,
+                  maxRadius: jointRadius * 4,
+                  alpha: 0.8,
+                  color: color,
+                });
+              }
+            } else if (angle < 140) {
+              // Add hysteresis window to prevent rapid clicking toggling
+              prevStraightRef.current[sideKey] = false;
             }
-          } else if (angle < 140) {
-            // Add hysteresis window to prevent rapid clicking toggling
-            prevStraightRef.current[sideKey] = false;
+          };
+
+          checkStretch(angles.lElbow, joints.lElbow, "lElbow", colors.left);
+          checkStretch(angles.rElbow, joints.rElbow, "rElbow", colors.right);
+          
+          if (autoCalibModeRef.current === "full") {
+            checkStretch(angles.lKnee, joints.lKnee, "lKnee", colors.left);
+            checkStretch(angles.rKnee, joints.rKnee, "rKnee", colors.right);
           }
-        };
-
-        checkStretch(angles.lElbow, joints.lElbow, "lElbow", colors.left);
-        checkStretch(angles.rElbow, joints.rElbow, "rElbow", colors.right);
-        
-        if (autoCalibMode === "full") {
-          checkStretch(angles.lKnee, joints.lKnee, "lKnee", colors.left);
-          checkStretch(angles.rKnee, joints.rKnee, "rKnee", colors.right);
         }
-      }
 
-      // 3. Update Joint Trails (Speed Responsive)
-      if (showTrails) {
-        updateTrailsWithSpeed(joints);
-        drawTrails(ctx, colors, height);
-      }
-
-      // 4. Update and Render Ripples & Sparkle Particles
-      updateAndDrawRipples(ctx, height);
-      updateAndDrawParticles(ctx);
-
-      // 5. Draw Skeleton Bones
-      ctx.shadowBlur = 15;
-      ctx.lineCap = "round";
-
-      if (joints.lShoulder && joints.rShoulder && joints.lHip && joints.rHip) {
-        const neckCenter = {
-          x: (joints.lShoulder.x + joints.rShoulder.x) / 2,
-          y: (joints.lShoulder.y + joints.rShoulder.y) / 2,
-        };
-        const pelvisCenter = {
-          x: (joints.lHip.x + joints.rHip.x) / 2,
-          y: (joints.lHip.y + joints.rHip.y) / 2,
-        };
-
-        // Draw center lines
-        drawBone(ctx, neckCenter, pelvisCenter, colors.center, colors.centerGlow, boneWidth);
-        drawBone(ctx, joints.lShoulder, joints.rShoulder, colors.center, colors.centerGlow, boneWidth);
-        drawBone(ctx, joints.lHip, joints.rHip, colors.center, colors.centerGlow, boneWidth);
-        if (joints.nose) {
-          drawBone(ctx, joints.nose, neckCenter, colors.center, colors.centerGlow, boneWidth);
+        // 3. Update Joint Trails (Speed Responsive)
+        if (showTrailsRef.current) {
+          updateTrailsWithSpeed(joints);
+          drawTrails(ctx, colors, height);
         }
-      }
 
-      // Draw Left Half (Magenta)
-      const drawBoneWithHighlight = (p1: any, p2: any, angleCheck: boolean, color: string, glow: string) => {
-        if (!p1 || !p2) return;
-        const currentBoneWidth = angleCheck && stretchHighlights ? boneWidth * 1.8 : boneWidth;
-        const currentColor = angleCheck && stretchHighlights ? "#ffffff" : color;
-        const currentGlow = angleCheck && stretchHighlights ? "rgba(255,255,255,0.8)" : glow;
-        
-        drawBone(ctx, p1, p2, currentColor, currentGlow, currentBoneWidth);
-      };
+        // 4. Update and Render Ripples & Sparkle Particles
+        updateAndDrawRipples(ctx, height);
+        updateAndDrawParticles(ctx);
 
-      drawBoneWithHighlight(joints.lShoulder, joints.lElbow, angles.lElbow > 166, colors.left, colors.leftGlow);
-      drawBoneWithHighlight(joints.lElbow, joints.lWrist, angles.lElbow > 166, colors.left, colors.leftGlow);
-      if (joints.lShoulder && joints.lHip) drawBone(ctx, joints.lShoulder, joints.lHip, colors.left, colors.leftGlow, boneWidth * 0.7);
-      drawBoneWithHighlight(joints.lHip, joints.lKnee, angles.lKnee > 166, colors.left, colors.leftGlow);
-      drawBoneWithHighlight(joints.lKnee, joints.lAnkle, angles.lKnee > 166, colors.left, colors.leftGlow);
+        // 5. Draw Skeleton Bones
+        ctx.shadowBlur = 15;
+        ctx.lineCap = "round";
 
-      // Draw Right Half (Cyan)
-      drawBoneWithHighlight(joints.rShoulder, joints.rElbow, angles.rElbow > 166, colors.right, colors.rightGlow);
-      drawBoneWithHighlight(joints.rElbow, joints.rWrist, angles.rElbow > 166, colors.right, colors.rightGlow);
-      if (joints.rShoulder && joints.rHip) drawBone(ctx, joints.rShoulder, joints.rHip, colors.right, colors.rightGlow, boneWidth * 0.7);
-      drawBoneWithHighlight(joints.rHip, joints.rKnee, angles.rKnee > 166, colors.right, colors.rightGlow);
-      drawBoneWithHighlight(joints.rKnee, joints.rAnkle, angles.rKnee > 166, colors.right, colors.rightGlow);
+        if (joints.lShoulder && joints.rShoulder && joints.lHip && joints.rHip) {
+          const neckCenter = {
+            x: (joints.lShoulder.x + joints.rShoulder.x) / 2,
+            y: (joints.lShoulder.y + joints.rShoulder.y) / 2,
+          };
+          const pelvisCenter = {
+            x: (joints.lHip.x + joints.rHip.x) / 2,
+            y: (joints.lHip.y + joints.rHip.y) / 2,
+          };
 
-      // Draw Joint Nodes
-      if (joints.nose && joints.nose.visibility > 0.5) {
-        drawJoint(ctx, joints.nose, colors.center, colors.centerGlow, jointRadius * 1.5);
-      }
-
-      // Draw left joints
-      const leftJointItems = [
-        { pt: joints.lShoulder, active: false },
-        { pt: joints.lElbow, active: angles.lElbow > 166 },
-        { pt: joints.lWrist, active: false },
-        { pt: joints.lHip, active: false },
-        { pt: joints.lKnee, active: angles.lKnee > 166 },
-        { pt: joints.lAnkle, active: false },
-      ];
-      leftJointItems.forEach((item) => {
-        if (item.pt && item.pt.visibility > 0.5) {
-          const r = item.active && stretchHighlights ? jointRadius * 1.5 : jointRadius;
-          const col = item.active && stretchHighlights ? "#ffffff" : colors.left;
-          drawJoint(ctx, item.pt, col, colors.leftGlow, r);
+          // Draw center lines
+          drawBone(ctx, neckCenter, pelvisCenter, colors.center, colors.centerGlow, boneWidth);
+          drawBone(ctx, joints.lShoulder, joints.rShoulder, colors.center, colors.centerGlow, boneWidth);
+          drawBone(ctx, joints.lHip, joints.rHip, colors.center, colors.centerGlow, boneWidth);
+          if (joints.nose) {
+            drawBone(ctx, joints.nose, neckCenter, colors.center, colors.centerGlow, boneWidth);
+          }
         }
-      });
 
-      // Draw right joints
-      const rightJointItems = [
-        { pt: joints.rShoulder, active: false },
-        { pt: joints.rElbow, active: angles.rElbow > 166 },
-        { pt: joints.rWrist, active: false },
-        { pt: joints.rHip, active: false },
-        { pt: joints.rKnee, active: angles.rKnee > 166 },
-        { pt: joints.rAnkle, active: false },
-      ];
-      rightJointItems.forEach((item) => {
-        if (item.pt && item.pt.visibility > 0.5) {
-          const r = item.active && stretchHighlights ? jointRadius * 1.5 : jointRadius;
-          const col = item.active && stretchHighlights ? "#ffffff" : colors.right;
-          drawJoint(ctx, item.pt, col, colors.rightGlow, r);
-        }
-      });
-
-      // 6. Game Mode Overlay & Posture Checks
-      if (gameMode) {
-        const activePoses = getActivePoses();
-        const currentPose = activePoses[activePoseIndex];
-        
-        if (currentPose) {
-          // Draw target dotted silhouette
-          ctx.save();
-          ctx.setLineDash([6, 6]);
-          ctx.shadowBlur = 10;
-          ctx.shadowColor = "rgba(255, 255, 255, 0.15)";
+        // Draw Left Half (Magenta)
+        const drawBoneWithHighlight = (p1: any, p2: any, angleCheck: boolean, color: string, glow: string) => {
+          if (!p1 || !p2) return;
+          const currentBoneWidth = angleCheck && stretchHighlightsRef.current ? boneWidth * 1.8 : boneWidth;
+          const currentColor = angleCheck && stretchHighlightsRef.current ? "#ffffff" : color;
+          const currentGlow = angleCheck && stretchHighlightsRef.current ? "rgba(255,255,255,0.8)" : glow;
           
-          const isMatchActive = currentPose.checkMatch(joints, height, width);
-          const silhouetteColor = isMatchActive ? "#ffb700" : "rgba(255, 255, 255, 0.18)";
+          drawBone(ctx, p1, p2, currentColor, currentGlow, currentBoneWidth);
+        };
+
+        drawBoneWithHighlight(joints.lShoulder, joints.lElbow, angles.lElbow > 166, colors.left, colors.leftGlow);
+        drawBoneWithHighlight(joints.lElbow, joints.lWrist, angles.lElbow > 166, colors.left, colors.leftGlow);
+        if (joints.lShoulder && joints.lHip) drawBone(ctx, joints.lShoulder, joints.lHip, colors.left, colors.leftGlow, boneWidth * 0.7);
+        drawBoneWithHighlight(joints.lHip, joints.lKnee, angles.lKnee > 166, colors.left, colors.leftGlow);
+        drawBoneWithHighlight(joints.lKnee, joints.lAnkle, angles.lKnee > 166, colors.left, colors.leftGlow);
+
+        // Draw Right Half (Cyan)
+        drawBoneWithHighlight(joints.rShoulder, joints.rElbow, angles.rElbow > 166, colors.right, colors.rightGlow);
+        drawBoneWithHighlight(joints.rElbow, joints.rWrist, angles.rElbow > 166, colors.right, colors.rightGlow);
+        if (joints.rShoulder && joints.rHip) drawBone(ctx, joints.rShoulder, joints.rHip, colors.right, colors.rightGlow, boneWidth * 0.7);
+        drawBoneWithHighlight(joints.rHip, joints.rKnee, angles.rKnee > 166, colors.right, colors.rightGlow);
+        drawBoneWithHighlight(joints.rKnee, joints.rAnkle, angles.rKnee > 166, colors.right, colors.rightGlow);
+
+        // Draw Joint Nodes
+        if (joints.nose && joints.nose.visibility > 0.5) {
+          drawJoint(ctx, joints.nose, colors.center, colors.centerGlow, jointRadius * 1.5);
+        }
+
+        // Draw left joints
+        const leftJointItems = [
+          { pt: joints.lShoulder, active: false },
+          { pt: joints.lElbow, active: angles.lElbow > 166 },
+          { pt: joints.lWrist, active: false },
+          { pt: joints.lHip, active: false },
+          { pt: joints.lKnee, active: angles.lKnee > 166 },
+          { pt: joints.lAnkle, active: false },
+        ];
+        leftJointItems.forEach((item) => {
+          if (item.pt && item.pt.visibility > 0.5) {
+            const r = item.active && stretchHighlightsRef.current ? jointRadius * 1.5 : jointRadius;
+            const col = item.active && stretchHighlightsRef.current ? "#ffffff" : colors.left;
+            drawJoint(ctx, item.pt, col, colors.leftGlow, r);
+          }
+        });
+
+        // Draw right joints
+        const rightJointItems = [
+          { pt: joints.rShoulder, active: false },
+          { pt: joints.rElbow, active: angles.rElbow > 166 },
+          { pt: joints.rWrist, active: false },
+          { pt: joints.rHip, active: false },
+          { pt: joints.rKnee, active: angles.rKnee > 166 },
+          { pt: joints.rAnkle, active: false },
+        ];
+        rightJointItems.forEach((item) => {
+          if (item.pt && item.pt.visibility > 0.5) {
+            const r = item.active && stretchHighlightsRef.current ? jointRadius * 1.5 : jointRadius;
+            const col = item.active && stretchHighlightsRef.current ? "#ffffff" : colors.right;
+            drawJoint(ctx, item.pt, col, colors.rightGlow, r);
+          }
+        });
+
+        // 6. Game Mode Overlay & Posture Checks
+        if (gameModeRef.current) {
+          const activePoses = getActivePoses();
+          const currentPose = activePoses[activePoseIndexRef.current];
           
-          currentPose.drawSilhouette(ctx, width, height, silhouetteColor);
-          ctx.restore();
+          if (currentPose) {
+            // Draw target dotted silhouette
+            ctx.save();
+            ctx.setLineDash([6, 6]);
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = "rgba(255, 255, 255, 0.15)";
+            
+            const isMatchActive = currentPose.checkMatch(joints, height, width);
+            const silhouetteColor = isMatchActive ? "#ffb700" : "rgba(255, 255, 255, 0.18)";
+            
+            currentPose.drawSilhouette(ctx, width, height, silhouetteColor);
+            ctx.restore();
 
-          // Render matching progress circular ring around head (target node) or center
-          if (isMatchActive) {
-            if (!isMatchingRef.current) {
-              isMatchingRef.current = true;
-              matchStartRef.current = Date.now();
-            }
-
-            const elapsed = Date.now() - matchStartRef.current;
-            const progress = Math.min(100, (elapsed / 1200) * 100); // 1.2 seconds hold
-            setMatchProgress(progress);
-
-            if (elapsed >= 1200) {
-              // Target Matched! Play fanfare, burst fireworks, next pose
-              audioSynth.playPoseClear();
-              if (joints.nose) {
-                triggerFireworks(joints.nose.x, joints.nose.y, colors);
-              } else {
-                triggerFireworks(width / 2, height * 0.4, colors);
+            // Render matching progress circular ring
+            if (isMatchActive) {
+              if (!isMatchingRef.current) {
+                isMatchingRef.current = true;
+                matchStartRef.current = Date.now();
               }
 
-              // Advance index
-              setActivePoseIndex((prev) => (prev + 1) % activePoses.length);
-              setMatchProgress(0);
-              isMatchingRef.current = false;
-            }
-          } else {
-            // Decay progress slowly if wobbly
-            if (isMatchingRef.current) {
               const elapsed = Date.now() - matchStartRef.current;
-              if (elapsed < 100) {
+              const progress = Math.min(100, (elapsed / 1200) * 100); // 1.2 seconds hold
+              matchProgressRef.current = progress;
+
+              if (elapsed >= 1200) {
+                // Target Matched! Play fanfare, burst fireworks, next pose
+                audioSynth.playPoseClear();
+                if (joints.nose) {
+                  triggerFireworks(joints.nose.x, joints.nose.y, colors);
+                } else {
+                  triggerFireworks(width / 2, height * 0.4, colors);
+                }
+
+                // Advance index
+                setActivePoseIndex((prev) => (prev + 1) % activePoses.length);
+                matchProgressRef.current = 0;
                 isMatchingRef.current = false;
-                setMatchProgress(0);
-              } else {
-                // decay
-                setMatchProgress((prev) => Math.max(0, prev - 4));
-                if (matchProgress === 0) {
+              }
+            } else {
+              // Decay progress slowly if wobbly
+              if (isMatchingRef.current) {
+                const elapsed = Date.now() - matchStartRef.current;
+                if (elapsed < 100) {
                   isMatchingRef.current = false;
+                  matchProgressRef.current = 0;
+                } else {
+                  matchProgressRef.current = Math.max(0, matchProgressRef.current - 4);
+                  if (matchProgressRef.current === 0) {
+                    isMatchingRef.current = false;
+                  }
                 }
               }
             }
-          }
 
-          // Draw progress ring around nose/head
-          if (matchProgress > 0 && joints.nose) {
-            ctx.save();
-            ctx.beginPath();
-            ctx.arc(joints.nose.x, joints.nose.y, jointRadius * 2.2, -0.5 * Math.PI, (-0.5 + 2 * (matchProgress / 100)) * Math.PI);
-            ctx.strokeStyle = "#ffb700";
-            ctx.lineWidth = height * 0.005;
-            ctx.shadowBlur = 10;
-            ctx.shadowColor = "rgba(255, 183, 0, 0.6)";
-            ctx.stroke();
-            ctx.restore();
+            // Draw progress ring around nose/head
+            if (matchProgressRef.current > 0 && joints.nose) {
+              ctx.save();
+              ctx.beginPath();
+              ctx.arc(joints.nose.x, joints.nose.y, jointRadius * 2.2, -0.5 * Math.PI, (-0.5 + 2 * (matchProgressRef.current / 100)) * Math.PI);
+              ctx.strokeStyle = "#ffb700";
+              ctx.lineWidth = height * 0.005;
+              ctx.shadowBlur = 10;
+              ctx.shadowColor = "rgba(255, 183, 0, 0.6)";
+              ctx.stroke();
+              ctx.restore();
+            }
           }
+        }
+
+        // Reset Gesture Ring
+        if (isResettingRef.current && joints.nose) {
+          drawResetRing(ctx, joints.nose, height);
         }
       }
 
-      // Reset Gesture Ring
-      if (isResettingRef.current && joints.nose) {
-        drawResetRing(ctx, joints.nose, height);
-      }
-    }
-  }, [
-    landmarks,
-    calibrated,
-    showTrails,
-    theme,
-    autoCalibMode,
-    videoElement,
-    cameraBackground,
-    gameMode,
-    stretchHighlights,
-    activePoseIndex,
-    matchProgress
-  ]);
+      animationFrameId = requestAnimationFrame(render);
+    };
+
+    render();
+
+    return () => {
+      cancelAnimationFrame(animationFrameId);
+    };
+  }, []);
 
   // Update particles positions and fade
   const updateAndDrawParticles = (ctx: CanvasRenderingContext2D) => {
@@ -1000,9 +1069,9 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
 
   // Calibration state checkers
   const handleCalibrationCheck = (pose: any) => {
-    if (calibrated) return;
+    if (calibratedRef.current) return;
 
-    const requiredIndices = autoCalibMode === "full" 
+    const requiredIndices = autoCalibModeRef.current === "full" 
       ? [11, 12, 23, 24, 25, 26, 27, 28] 
       : [11, 12, 23, 24];
 
@@ -1022,14 +1091,14 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
         calibrationTimerRef.current = window.setInterval(() => {
           const elapsed = Date.now() - calibStartTimeRef.current;
           const progress = Math.min(100, (elapsed / 3000) * 100);
-          setCalibrationProgress(progress);
+          calibrationProgressRef.current = progress;
 
           if (elapsed >= 3000) {
             clearInterval(calibrationTimerRef.current!);
             calibrationTimerRef.current = null;
             isCalibratingRef.current = false;
-            setCalibrationProgress(0);
-            setCalibrated(true);
+            calibrationProgressRef.current = 0;
+            setCalibratedRef.current(true);
             audioSynth.playCalibrationSuccess();
           }
         }, 50);
@@ -1046,13 +1115,13 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
         clearInterval(calibrationTimerRef.current);
         calibrationTimerRef.current = null;
       }
-      setCalibrationProgress(0);
+      calibrationProgressRef.current = 0;
     }
   };
 
   // Reset Gesture checks
   const handleResetCheck = (pose: any) => {
-    if (!calibrated) return;
+    if (!calibratedRef.current) return;
 
     const lWrist = pose[15];
     const rWrist = pose[16];
@@ -1080,17 +1149,17 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
         resetTimerRef.current = window.setInterval(() => {
           const elapsed = Date.now() - resetStartTimeRef.current;
           const progress = Math.min(100, (elapsed / 1500) * 100);
-          setResetProgress(progress);
+          resetProgressRef.current = progress;
 
           if (elapsed >= 1500) {
             clearInterval(resetTimerRef.current!);
             resetTimerRef.current = null;
             isResettingRef.current = false;
-            setResetProgress(0);
+            resetProgressRef.current = 0;
             
             audioSynth.playReset();
-            onResetTriggered();
-            setCalibrated(false);
+            onResetTriggeredRef.current();
+            setCalibratedRef.current(false);
           }
         }, 50);
       }
@@ -1106,7 +1175,7 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
         clearInterval(resetTimerRef.current);
         resetTimerRef.current = null;
       }
-      setResetProgress(0);
+      resetProgressRef.current = 0;
     }
   };
 
@@ -1134,7 +1203,7 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
 
       ctx.beginPath();
       const startAngle = -0.5 * Math.PI;
-      const endAngle = startAngle + (2 * Math.PI * (calibrationProgress / 100));
+      const endAngle = startAngle + (2 * Math.PI * (calibrationProgressRef.current / 100));
       ctx.arc(centerX, centerY, radius, startAngle, endAngle);
       ctx.strokeStyle = "var(--color-right)";
       ctx.lineWidth = height * 0.01;
@@ -1142,7 +1211,7 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
       ctx.shadowColor = "var(--color-right-glow)";
       ctx.stroke();
 
-      const countdownSec = Math.ceil(3 - (3 * (calibrationProgress / 100)));
+      const countdownSec = Math.ceil(3 - (3 * (calibrationProgressRef.current / 100)));
       ctx.font = `bold ${height * 0.07}px var(--font-sans)`;
       ctx.fillStyle = "#ffffff";
       ctx.textAlign = "center";
@@ -1189,7 +1258,7 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
 
     ctx.beginPath();
     const startAngle = -0.5 * Math.PI;
-    const endAngle = startAngle + (2 * Math.PI * (resetProgress / 100));
+    const endAngle = startAngle + (2 * Math.PI * (resetProgressRef.current / 100));
     ctx.arc(nose.x, nose.y, height * 0.05, startAngle, endAngle);
     ctx.strokeStyle = "var(--color-left)";
     ctx.lineWidth = height * 0.006;
