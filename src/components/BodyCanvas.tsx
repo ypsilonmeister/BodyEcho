@@ -589,8 +589,8 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
             {
               id: "pose" as const,
               x: clampBtnX(btnCenterX - btnSpacing),
-              labelEn: "POSE",
-              labelJa: "ポーズあそび",
+              kanji: "形",
+              reading: "ポーズあそび",
               isActive: false,
               action: () => {
                 setGameModeRef.current(true);
@@ -600,8 +600,8 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
             {
               id: "trace" as const,
               x: btnCenterX,
-              labelEn: "TRACE",
-              labelJa: "イライラぼう",
+              kanji: "道",
+              reading: "イライラぼう",
               isActive: false,
               action: () => {
                 setGameModeRef.current(true);
@@ -611,8 +611,8 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
             {
               id: "kanji" as const,
               x: clampBtnX(btnCenterX + btnSpacing),
-              labelEn: "KANJI",
-              labelJa: "かんじかき",
+              kanji: "書",
+              reading: "かんじかき",
               isActive: false,
               action: () => {
                 setGameModeRef.current(true);
@@ -627,8 +627,8 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
           buttonsConfig.push({
             id: "quit" as const,
             x: inGameKanji ? clampBtnX(btnCenterX + btnSpacing * 0.5) : btnCenterX,
-            labelEn: "QUIT",
-            labelJa: "やめる",
+            kanji: "戻",
+            reading: "やめる",
             isActive: false,
             action: () => {
               setGameModeRef.current(false);
@@ -640,8 +640,8 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
             buttonsConfig.push({
               id: "done" as const,
               x: clampBtnX(btnCenterX - btnSpacing * 0.5),
-              labelEn: "DONE",
-              labelJa: "できた！",
+              kanji: "完",
+              reading: "できた！",
               isActive: false,
               action: () => {
                 triggerKanjiSuccessRef.current(width, height, colors, triggerFireworks);
@@ -691,8 +691,8 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
           br: number,
           isActive: boolean,
           progress: number,
-          labelEn: string,
-          labelJa: string,
+          kanji: string,
+          reading: string,
           colors: ThemeColors
         ) => {
           ctx.save();
@@ -734,38 +734,36 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
           ctx.fillStyle = fillColor;
           ctx.fill();
 
-          // Labels rendering
+          // Labels rendering: a single large kanji with the hiragana
+          // reading as small furigana underneath. 7-year-olds
+          // can read the kanji, and the big glyph keeps visual load low.
           ctx.textAlign = "center";
           ctx.textBaseline = "middle";
-          
+
           // Dynamic responsive font sizes based on screen width
-          let fSizeEn = br * 0.28;
+          let fSizeKanji = br * 0.7;
           let fSizeJa = br * 0.2;
           if (width < 768) {
             // Mobile: larger text ratio for small screens
-            fSizeEn = br * 0.32;
+            fSizeKanji = br * 0.78;
             fSizeJa = br * 0.24;
           } else if (width <= 1024) {
             // Tablet
-            fSizeEn = br * 0.30;
+            fSizeKanji = br * 0.74;
             fSizeJa = br * 0.22;
-          } else {
-            // PC: standard comfortable ratio but larger overall since br itself is larger
-            fSizeEn = br * 0.28;
-            fSizeJa = br * 0.21;
           }
 
-          // Constrain label width so long Japanese labels (e.g. ポーズあそび)
+          // Constrain label width so long readings (e.g. ポーズあそび)
           // can't spill outside the circle: maxWidth shrinks text only when needed.
           const labelMaxWidth = br * 1.5;
 
-          ctx.font = `bold ${fSizeEn}px var(--font-sans)`;
+          ctx.font = `bold ${fSizeKanji}px var(--font-sans)`;
           ctx.fillStyle = textColor;
-          ctx.fillText(labelEn, bx, by - br * 0.15, labelMaxWidth);
+          ctx.fillText(kanji, bx, by - br * 0.12, labelMaxWidth);
 
           ctx.font = `bold ${fSizeJa}px var(--font-sans)`;
           ctx.fillStyle = isHovered ? colorActive : (isActive ? "#ffffff" : "var(--text-secondary)");
-          ctx.fillText(labelJa, bx, by + br * 0.2, labelMaxWidth);
+          ctx.fillText(reading, bx, by + br * 0.45, labelMaxWidth);
 
           ctx.restore();
         };
@@ -779,8 +777,8 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
             btnRadius,
             btn.isActive,
             btnHoverProgressesRef.current[btn.id],
-            btn.labelEn,
-            btn.labelJa,
+            btn.kanji,
+            btn.reading,
             colors
           );
         });
