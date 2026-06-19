@@ -11,6 +11,13 @@ export interface KanjiItem {
 
 export type { Point2D };
 
+// Font + slack shared by the visible お手本 guide (BodyCanvas) and the hit
+// mask here, so the line a child sees is exactly the line they can draw on.
+// KANJI_GUIDE_SLACK is the mask stroke width as a fraction of the box; the
+// guide glyph is stroked at the same width so visual == hittable.
+export const KANJI_GUIDE_FONT = "Outfit, 'Hiragino Kaku Gothic ProN', 'Yu Gothic', sans-serif";
+export const KANJI_GUIDE_SLACK = 0.07;
+
 /**
  * The on-canvas writing box (the お手本 grid). Shared between the guide
  * rendering in BodyCanvas and the "area" draw-trigger here so the visible
@@ -190,14 +197,16 @@ export const useKanjiWritingGame = ({
     mctx.clearRect(0, 0, canvas.width, canvas.height);
     mctx.fillStyle = "#fff";
     mctx.strokeStyle = "#fff";
-    // Slack: ~7% of the box on each side. Matches the guide glyph (height*0.34)
-    // visually while staying forgiving for 7-year-olds.
-    mctx.lineWidth = boxSize * 0.14;
+    // Slack of ~3.5% of the box on each side (lineWidth = full slack, split
+    // both sides by stroke). Kept modest so gaps between strokes stay "off the
+    // line"; the visible guide is drawn at this same width (see KANJI_GUIDE_SLACK)
+    // so what the child sees as the line IS the hittable area.
+    mctx.lineWidth = boxSize * KANJI_GUIDE_SLACK;
     mctx.lineJoin = "round";
     mctx.lineCap = "round";
     mctx.textAlign = "center";
     mctx.textBaseline = "middle";
-    mctx.font = `bold ${height * 0.34}px Outfit, 'Hiragino Kaku Gothic ProN', 'Yu Gothic', sans-serif`;
+    mctx.font = `bold ${height * 0.34}px ${KANJI_GUIDE_FONT}`;
     mctx.strokeText(char, cX, cY);
     mctx.fillText(char, cX, cY);
 

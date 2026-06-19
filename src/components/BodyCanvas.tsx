@@ -2,7 +2,7 @@ import React, { useRef, useEffect } from "react";
 import { audioSynth } from "../utils/audioSynth";
 import usePoseMatchingGame from "./games/usePoseMatchingGame";
 import useSlowTraceGame from "./games/useSlowTraceGame";
-import useKanjiWritingGame, { kanjiList, getKanjiBox } from "./games/useKanjiWritingGame";
+import useKanjiWritingGame, { kanjiList, getKanjiBox, KANJI_GUIDE_FONT, KANJI_GUIDE_SLACK } from "./games/useKanjiWritingGame";
 import {
   calculateAngle,
   drawBone,
@@ -11,6 +11,11 @@ import {
   updateAndDrawRipples,
 } from "../utils/canvasDraw";
 import type { Particle, Ripple, Point2D, ThemeColors, Landmark } from "../types";
+
+// Canvas's ctx.font does NOT resolve CSS variables like var(--font-sans);
+// an unparseable font string silently falls back to ~10px sans-serif. Use the
+// literal stack shared with the kanji guide/mask for all canvas text.
+const CANVAS_FONT = KANJI_GUIDE_FONT;
 
 interface BodyCanvasProps {
   landmarks: any[] | null;
@@ -756,11 +761,11 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
           // can't spill outside the circle: maxWidth shrinks text only when needed.
           const labelMaxWidth = br * 1.5;
 
-          ctx.font = `bold ${fSizeKanji}px var(--font-sans)`;
+          ctx.font = `bold ${fSizeKanji}px ${CANVAS_FONT}`;
           ctx.fillStyle = textColor;
           ctx.fillText(kanji, bx, by - br * 0.12, labelMaxWidth);
 
-          ctx.font = `bold ${fSizeJa}px var(--font-sans)`;
+          ctx.font = `bold ${fSizeJa}px ${CANVAS_FONT}`;
           ctx.fillStyle = isHovered ? colorActive : (isActive ? "#ffffff" : "var(--text-secondary)");
           ctx.fillText(reading, bx, by + br * 0.45, labelMaxWidth);
 
@@ -871,19 +876,26 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
           ctx.lineTo(cX, cY + boxSize / 2);
           ctx.stroke();
           
-          // Render character outline guide
-          ctx.font = `bold ${height * 0.34}px Outfit, 'Hiragino Kaku Gothic ProN', 'Yu Gothic', sans-serif`;
+          // Render character guide. Stroke it at the SAME width as the hit
+          // mask (boxSize * KANJI_GUIDE_SLACK) so the visible line and the
+          // drawable area are identical — drawing only ever happens where a
+          // line is actually shown.
+          ctx.font = `bold ${height * 0.34}px ${KANJI_GUIDE_FONT}`;
           ctx.textAlign = "center";
           ctx.textBaseline = "middle";
-          
-          ctx.shadowBlur = 10;
+          ctx.lineJoin = "round";
+          ctx.lineCap = "round";
+
           const brushColor = kanjiHandRef.current === "right" ? colors.right : colors.left;
+          ctx.shadowBlur = 8;
           ctx.shadowColor = brushColor;
-          ctx.strokeStyle = "rgba(255, 255, 255, 0.08)";
-          ctx.lineWidth = 3;
+          ctx.strokeStyle = "rgba(255, 255, 255, 0.14)";
+          ctx.lineWidth = boxSize * KANJI_GUIDE_SLACK;
           ctx.strokeText(activeKanji.char, cX, cY);
-          
-          ctx.fillStyle = "rgba(255, 255, 255, 0.12)";
+
+          // Thin bright core so the stroke center reads as the "ideal" path.
+          ctx.shadowBlur = 0;
+          ctx.fillStyle = "rgba(255, 255, 255, 0.22)";
           ctx.fillText(activeKanji.char, cX, cY);
           ctx.restore();
         }
@@ -1252,7 +1264,7 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
       ctx.stroke();
 
       const countdownSec = Math.ceil(3 - (3 * (calibrationProgressRef.current / 100)));
-      ctx.font = `bold ${height * 0.07}px var(--font-sans)`;
+      ctx.font = `bold ${height * 0.07}px ${CANVAS_FONT}`;
       ctx.fillStyle = "#ffffff";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
@@ -1306,7 +1318,7 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
     ctx.shadowColor = "var(--color-left-glow)";
     ctx.stroke();
 
-    ctx.font = `bold ${height * 0.015}px var(--font-sans)`;
+    ctx.font = `bold ${height * 0.015}px ${CANVAS_FONT}`;
     ctx.fillStyle = "var(--color-left)";
     ctx.textAlign = "center";
     ctx.fillText("RESETTING", nose.x, nose.y - height * 0.07);
