@@ -30,7 +30,7 @@ function App() {
   const [kanjiHand, setKanjiHand] = useState<"left" | "right">("right");
   const [kanjiChar, setKanjiChar] = useState<string>("雨");
   const [kanjiBrushStyle, setKanjiBrushStyle] = useState<"neon" | "flame" | "rainbow">("neon");
-  const [kanjiTriggerGesture, setKanjiTriggerGesture] = useState<"always" | "fist" | "index">("always");
+  const [kanjiTriggerGesture, setKanjiTriggerGesture] = useState<"always" | "area">("area");
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>("");
   

@@ -11,6 +11,28 @@ export interface KanjiItem {
 
 export type { Point2D };
 
+/**
+ * The on-canvas writing box (the お手本 grid). Shared between the guide
+ * rendering in BodyCanvas and the "area" draw-trigger here so the visible
+ * frame and the hit-test can never drift apart. Mirrors the geometry that
+ * BodyCanvas uses for the kanji guide: centered horizontally, pushed below
+ * the air-button zone, square of side height*0.4.
+ */
+export const getKanjiBox = (width: number, height: number) => {
+  const cX = width / 2;
+  const cY = height * 0.58;
+  const boxSize = height * 0.4;
+  return {
+    cX,
+    cY,
+    boxSize,
+    left: cX - boxSize / 2,
+    right: cX + boxSize / 2,
+    top: cY - boxSize / 2,
+    bottom: cY + boxSize / 2,
+  };
+};
+
 export const KANJI_CATEGORIES: Record<string, string> = {
   nature: "しぜん (Nature)",
   life: "いきもの (Life)",
@@ -56,7 +78,7 @@ interface UseKanjiWritingGameProps {
   kanjiHand: "left" | "right";
   kanjiChar: string;
   kanjiBrushStyle: "neon" | "flame" | "rainbow";
-  kanjiTriggerGesture: "always" | "fist" | "index";
+  kanjiTriggerGesture: "always" | "area";
   setKanjiChar?: (char: string) => void;
 }
 
@@ -74,7 +96,6 @@ export const useKanjiWritingGame = ({
   const strokesRef = useRef<Point2D[][]>([]);
   const currentStrokeRef = useRef<Point2D[]>([]);
   const isDrawingRef = useRef<boolean>(false);
-  const [detectedGesture, setDetectedGesture] = useState<"open" | "fist" | "pointing" | "unknown">("unknown");
   const wasClappedRef = useRef<boolean>(false);
 
   // Sync inputs
@@ -83,6 +104,13 @@ export const useKanjiWritingGame = ({
   const kanjiBrushStyleRef = useRef(kanjiBrushStyle);
   const kanjiTriggerGestureRef = useRef(kanjiTriggerGesture);
   const kanjiStateRef = useRef<"writing" | "success">("writing");
+
+  // Offscreen mask used by the "area" trigger: the お手本 glyph painted thick
+  // (with のりしろ slack) onto a 1:1 canvas, so we can pixel-test whether the
+  // hand is on a stroke. Rebuilt only when the char or box size changes.
+  const maskCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const maskCtxRef = useRef<CanvasRenderingContext2D | null>(null);
+  const maskKeyRef = useRef<string>("");
 
   useEffect(() => {
     kanjiHandRef.current = kanjiHand;
@@ -139,30 +167,52 @@ export const useKanjiWritingGame = ({
     audioSynth.setDrawingSoundActive(false);
   };
 
-  const getHandGesture = (
-    wrist: any,
-    index: any,
-    pinky: any,
-    shoulderWidth: number
-  ): "open" | "fist" | "pointing" | "unknown" => {
-    if (!wrist || !index || !pinky || wrist.visibility < 0.5 || index.visibility < 0.5) {
-      return "unknown";
-    }
+  // Build (or reuse) the offscreen stroke mask for the current お手本 glyph.
+  // The glyph is filled, then stroked thick on top to add のりしろ slack so a
+  // child whose hand is a little off the line still counts as "on the stroke".
+  const ensureMask = (char: string, width: number, height: number) => {
+    const { cX, cY, boxSize } = getKanjiBox(width, height);
+    const key = `${char}|${Math.round(boxSize)}`;
+    if (maskKeyRef.current === key && maskCanvasRef.current) return;
 
-    // Normalized distances
-    const dIndex = Math.hypot(index.x - wrist.x, index.y - wrist.y) / shoulderWidth;
-    const dPinky = Math.hypot(pinky.x - wrist.x, pinky.y - wrist.y) / shoulderWidth;
+    let canvas = maskCanvasRef.current;
+    if (!canvas) {
+      canvas = document.createElement("canvas");
+      maskCanvasRef.current = canvas;
+    }
+    canvas.width = Math.max(1, Math.round(width));
+    canvas.height = Math.max(1, Math.round(height));
 
-    // Fist: fingers curled close to wrist
-    if (dIndex < 0.28 && dPinky < 0.24) {
-      return "fist";
-    }
-    // Pointing: index finger extended, pinky curled
-    if (dIndex > 0.33 && dPinky < 0.24) {
-      return "pointing";
-    }
-    // Open hand
-    return "open";
+    const mctx = canvas.getContext("2d", { willReadFrequently: true });
+    maskCtxRef.current = mctx;
+    if (!mctx) return;
+
+    mctx.clearRect(0, 0, canvas.width, canvas.height);
+    mctx.fillStyle = "#fff";
+    mctx.strokeStyle = "#fff";
+    // Slack: ~7% of the box on each side. Matches the guide glyph (height*0.34)
+    // visually while staying forgiving for 7-year-olds.
+    mctx.lineWidth = boxSize * 0.14;
+    mctx.lineJoin = "round";
+    mctx.lineCap = "round";
+    mctx.textAlign = "center";
+    mctx.textBaseline = "middle";
+    mctx.font = `bold ${height * 0.34}px Outfit, 'Hiragino Kaku Gothic ProN', 'Yu Gothic', sans-serif`;
+    mctx.strokeText(char, cX, cY);
+    mctx.fillText(char, cX, cY);
+
+    maskKeyRef.current = key;
+  };
+
+  // Is the point on the glyph stroke? Reads one pixel's alpha from the mask.
+  const isOnStroke = (x: number, y: number): boolean => {
+    const mctx = maskCtxRef.current;
+    const canvas = maskCanvasRef.current;
+    if (!mctx || !canvas) return false;
+    const px = Math.round(x);
+    const py = Math.round(y);
+    if (px < 0 || py < 0 || px >= canvas.width || py >= canvas.height) return false;
+    return mctx.getImageData(px, py, 1, 1).data[3] > 0;
   };
 
   const updateAndDrawKanjiGame = (
@@ -200,28 +250,26 @@ export const useKanjiWritingGame = ({
       }
     }
 
-    // 2. Gesture Drawing Trigger Logic
+    // 2. Drawing Trigger Logic
     const hand = kanjiHandRef.current;
     const wrist = hand === "right" ? joints.rWrist : joints.lWrist;
     const index = hand === "right" ? joints.rIndex : joints.lIndex;
-    const pinky = hand === "right" ? joints.rPinky : joints.lPinky;
-
-    const gesture = getHandGesture(wrist, index, pinky, shoulderWidth);
-    setDetectedGesture(gesture);
 
     // Tracking point: primary is index finger, wrist is backup
     const trackingPt = index && index.visibility > 0.5 ? index : wrist;
 
-    // Determine drawing condition
+    // Determine drawing condition.
+    // "area": draw only while the tracking point is on the お手本 glyph stroke
+    //   (pixel-tested against an offscreen mask) — keeps strokes on the lines.
+    // "always": draw whenever the hand is tracked.
     let shouldDraw = false;
     const trigger = kanjiTriggerGestureRef.current;
     if (trackingPt && trackingPt.visibility > 0.4 && kanjiStateRef.current === "writing") {
       if (trigger === "always") {
         shouldDraw = true;
-      } else if (trigger === "fist") {
-        shouldDraw = gesture === "fist";
-      } else if (trigger === "index") {
-        shouldDraw = gesture === "pointing";
+      } else if (trigger === "area") {
+        ensureMask(kanjiCharRef.current, width, height);
+        shouldDraw = isOnStroke(trackingPt.x, trackingPt.y);
       }
     }
 
@@ -432,7 +480,6 @@ export const useKanjiWritingGame = ({
 
   return {
     strokes: strokesRef.current,
-    detectedGesture,
     kanjiState,
     triggerSuccess,
     isDrawing: isDrawingRef.current,

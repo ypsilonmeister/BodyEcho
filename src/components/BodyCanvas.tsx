@@ -2,7 +2,7 @@ import React, { useRef, useEffect } from "react";
 import { audioSynth } from "../utils/audioSynth";
 import usePoseMatchingGame from "./games/usePoseMatchingGame";
 import useSlowTraceGame from "./games/useSlowTraceGame";
-import useKanjiWritingGame, { kanjiList } from "./games/useKanjiWritingGame";
+import useKanjiWritingGame, { kanjiList, getKanjiBox } from "./games/useKanjiWritingGame";
 import {
   calculateAngle,
   drawBone,
@@ -34,7 +34,7 @@ interface BodyCanvasProps {
   kanjiChar: string;
   setKanjiChar: (val: string) => void;
   kanjiBrushStyle: "neon" | "flame" | "rainbow";
-  kanjiTriggerGesture: "always" | "fist" | "index";
+  kanjiTriggerGesture: "always" | "area";
 }
 
 // Queue size for trails
@@ -124,7 +124,6 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
   });
 
   const {
-    detectedGesture,
     kanjiState,
     triggerSuccess: triggerKanjiSuccess,
     clearCanvas: clearKanjiCanvas,
@@ -848,19 +847,17 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
           const activeKanji = kanjiList.find(k => k.char === kanjiCharRef.current) || kanjiList[0];
           
           ctx.save();
-          const cX = width / 2;
-          // Push the guide below the air-buttons zone (buttons sit up to ~height*0.32)
-          // and shrink it so the glyph no longer overlaps the mode-switch buttons.
-          const cY = height * 0.58;
+          // Box geometry is shared with the "area" draw-trigger (getKanjiBox)
+          // so the visible frame and the hit-test stay in lock-step.
+          const { cX, cY, boxSize, left, top } = getKanjiBox(width, height);
 
           // Draw school kanji-grid boundary
           ctx.fillStyle = "rgba(255, 255, 255, 0.02)";
           ctx.strokeStyle = "rgba(255, 255, 255, 0.06)";
           ctx.lineWidth = 2;
           ctx.lineJoin = "round";
-          const boxSize = height * 0.4;
           ctx.beginPath();
-          ctx.roundRect(cX - boxSize / 2, cY - boxSize / 2, boxSize, boxSize, 16);
+          ctx.roundRect(left, top, boxSize, boxSize, 16);
           ctx.fill();
           ctx.stroke();
 
@@ -1450,37 +1447,25 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
               {kanjiHand === "right" ? "右手" : "左手"}でなぞって描こう！
             </div>
             
-            {/* Gesture feedback badge */}
+            {/* Draw-trigger hint badge */}
             <div style={{
               marginTop: 6,
               padding: "3px 10px",
               borderRadius: "12px",
-              background: detectedGesture === "fist" || detectedGesture === "pointing" 
-                ? "rgba(0, 255, 102, 0.15)" 
-                : "rgba(255, 255, 255, 0.08)",
-              border: `1px solid ${detectedGesture === "fist" || detectedGesture === "pointing" 
-                ? "rgba(0, 255, 102, 0.3)" 
-                : "rgba(255, 255, 255, 0.1)"}`,
+              background: "rgba(255, 255, 255, 0.08)",
+              border: "1px solid rgba(255, 255, 255, 0.1)",
               fontSize: 11,
               fontFamily: "var(--font-sans)",
               fontWeight: 600,
-              color: detectedGesture === "fist" || detectedGesture === "pointing" 
-                ? "#00ff66" 
-                : "var(--text-secondary)",
+              color: "var(--text-secondary)",
               display: "flex",
               alignItems: "center",
               gap: 4
             }}>
               <span>
-                {detectedGesture === "pointing" && "☝️ さす"}
-                {detectedGesture === "fist" && "✊ グー"}
-                {detectedGesture === "open" && "✋ パー (ホバー)"}
-                {detectedGesture === "unknown" && "❓ がくしゅう中"}
-              </span>
-              <span>
-                {kanjiTriggerGesture === "always" ? "(常に描く)" : 
-                 kanjiTriggerGesture === "fist" ? (detectedGesture === "fist" ? "[かく]" : "[うかす]") : 
-                 (detectedGesture === "pointing" ? "[かく]" : "[うかす]")}
+                {kanjiTriggerGesture === "always"
+                  ? "✍️ 常に描く"
+                  : "✏️ お手本の線の上をなぞると描けるよ"}
               </span>
             </div>
             
