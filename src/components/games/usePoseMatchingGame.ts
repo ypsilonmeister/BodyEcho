@@ -238,6 +238,125 @@ const gamePoses: Pose[] = [
       ctx.arc(cX, sY - 40, 15, 0, 2 * Math.PI); // head
       ctx.fill();
     }
+  },
+  {
+    name: "CACTUS",
+    japaneseName: "サボテンのポーズ",
+    description: "両ひじをヨコに上げて、手をピンと立ててね！",
+    checkMatch: (joints: any, _height: number) => {
+      if (!joints.lShoulder || !joints.rShoulder || !joints.lElbow || !joints.rElbow || !joints.lWrist || !joints.rWrist) return false;
+
+      const shoulderDist = Math.hypot(
+        joints.lShoulder.x - joints.rShoulder.x,
+        joints.lShoulder.y - joints.rShoulder.y
+      );
+      if (shoulderDist < 10) return false;
+
+      // Both elbows roughly at shoulder height (upper arm horizontal)...
+      const lElbowLevel = Math.abs(joints.lElbow.y - joints.lShoulder.y) < shoulderDist * 0.5;
+      const rElbowLevel = Math.abs(joints.rElbow.y - joints.rShoulder.y) < shoulderDist * 0.5;
+      // ...and both wrists raised well above the elbows (forearms pointing up).
+      const lForearmUp = joints.lWrist.y < joints.lElbow.y - shoulderDist * 0.45;
+      const rForearmUp = joints.rWrist.y < joints.rElbow.y - shoulderDist * 0.45;
+
+      return lElbowLevel && rElbowLevel && lForearmUp && rForearmUp;
+    },
+    drawSilhouette: (ctx: CanvasRenderingContext2D, width: number, height: number, color: string) => {
+      const cX = width / 2;
+      const sY = height * 0.38;
+      const spineL = height * 0.35;
+      const armL = width * 0.16;
+      const foreL = height * 0.14;
+
+      ctx.beginPath();
+      // Upper arms out to the sides
+      ctx.moveTo(cX, sY);
+      ctx.lineTo(cX - armL, sY);
+      ctx.moveTo(cX, sY);
+      ctx.lineTo(cX + armL, sY);
+      // Forearms up
+      ctx.moveTo(cX - armL, sY);
+      ctx.lineTo(cX - armL, sY - foreL);
+      ctx.moveTo(cX + armL, sY);
+      ctx.lineTo(cX + armL, sY - foreL);
+      // Spine
+      ctx.moveTo(cX, sY);
+      ctx.lineTo(cX, sY + spineL);
+      // Legs standing
+      ctx.moveTo(cX - width * 0.05, sY + spineL);
+      ctx.lineTo(cX - width * 0.05, sY + spineL + height * 0.2);
+      ctx.moveTo(cX + width * 0.05, sY + spineL);
+      ctx.lineTo(cX + width * 0.05, sY + spineL + height * 0.2);
+
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 4;
+      ctx.stroke();
+
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(cX - armL, sY - foreL, 8, 0, 2 * Math.PI);
+      ctx.arc(cX + armL, sY - foreL, 8, 0, 2 * Math.PI);
+      ctx.arc(cX, sY - 40, 15, 0, 2 * Math.PI); // head
+      ctx.fill();
+    }
+  },
+  {
+    name: "SQUAT",
+    japaneseName: "すもうのポーズ",
+    description: "足を広げて、ひざをまげて こしを落とそう！",
+    checkMatch: (joints: any, _height: number) => {
+      if (!joints.lHip || !joints.rHip || !joints.lKnee || !joints.rKnee || !joints.lAnkle || !joints.rAnkle || !joints.lShoulder || !joints.rShoulder) return false;
+
+      const lKneeAngle = calculateAngle(joints.lHip, joints.lKnee, joints.lAnkle);
+      const rKneeAngle = calculateAngle(joints.rHip, joints.rKnee, joints.rAnkle);
+
+      const shoulderDist = Math.hypot(
+        joints.lShoulder.x - joints.rShoulder.x,
+        joints.lShoulder.y - joints.rShoulder.y
+      );
+      if (shoulderDist < 10) return false;
+
+      // Both knees bent (sitting low) and feet planted wider than shoulders.
+      const bothBent = lKneeAngle < 130 && rKneeAngle < 130;
+      const feetWide = Math.abs(joints.lAnkle.x - joints.rAnkle.x) > shoulderDist * 1.1;
+
+      return bothBent && feetWide;
+    },
+    drawSilhouette: (ctx: CanvasRenderingContext2D, width: number, height: number, color: string) => {
+      const cX = width / 2;
+      const sY = height * 0.42;
+      const spineL = height * 0.22;
+      const hipY = sY + spineL;
+
+      ctx.beginPath();
+      // Arms out front (sumo stance)
+      ctx.moveTo(cX, sY);
+      ctx.lineTo(cX - width * 0.16, sY + height * 0.02);
+      ctx.moveTo(cX, sY);
+      ctx.lineTo(cX + width * 0.16, sY + height * 0.02);
+      // Spine
+      ctx.moveTo(cX, sY);
+      ctx.lineTo(cX, hipY);
+      // Left leg bent: hip -> knee (out) -> ankle (down)
+      ctx.moveTo(cX, hipY);
+      ctx.lineTo(cX - width * 0.16, hipY + height * 0.1);
+      ctx.lineTo(cX - width * 0.18, hipY + height * 0.22);
+      // Right leg bent
+      ctx.moveTo(cX, hipY);
+      ctx.lineTo(cX + width * 0.16, hipY + height * 0.1);
+      ctx.lineTo(cX + width * 0.18, hipY + height * 0.22);
+
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 4;
+      ctx.stroke();
+
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(cX - width * 0.16, hipY + height * 0.1, 7, 0, 2 * Math.PI); // knees
+      ctx.arc(cX + width * 0.16, hipY + height * 0.1, 7, 0, 2 * Math.PI);
+      ctx.arc(cX, sY - 40, 15, 0, 2 * Math.PI); // head
+      ctx.fill();
+    }
   }
 ];
 
@@ -253,8 +372,8 @@ export const usePoseMatchingGame = ({ autoCalibMode }: UsePoseMatchingGameProps)
 
   const getActivePoses = () => {
     if (autoCalibMode === "upper") {
-      // Exclude Flamingo pose which requires ankle balance tracking
-      return gamePoses.filter(pose => pose.name !== "FLAMINGO");
+      // Exclude poses that require lower-body/ankle tracking
+      return gamePoses.filter(pose => pose.name !== "FLAMINGO" && pose.name !== "SQUAT" && pose.name !== "STAR POSE");
     }
     return gamePoses;
   };

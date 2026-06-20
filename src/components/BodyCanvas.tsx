@@ -3,6 +3,7 @@ import { audioSynth } from "../utils/audioSynth";
 import usePoseMatchingGame from "./games/usePoseMatchingGame";
 import useSlowTraceGame from "./games/useSlowTraceGame";
 import useKanjiWritingGame, { kanjiList, getKanjiBox, KANJI_GUIDE_FONT, KANJI_GUIDE_SLACK } from "./games/useKanjiWritingGame";
+import useBalloonPopGame from "./games/useBalloonPopGame";
 import {
   calculateAngle,
   drawBone,
@@ -29,8 +30,8 @@ interface BodyCanvasProps {
   cameraBackground: "calibration" | "always" | "never";
   gameMode: boolean;
   setGameMode: (val: boolean) => void;
-  gameType: "pose" | "trace" | "kanji";
-  setGameType: (val: "pose" | "trace" | "kanji") => void;
+  gameType: "pose" | "trace" | "kanji" | "balloon";
+  setGameType: (val: "pose" | "trace" | "kanji" | "balloon") => void;
   traceHand: "left" | "right";
   tracePathType: "horizontal" | "vertical" | "sine" | "circle";
   traceSpeed: "slow" | "medium" | "fast";
@@ -144,6 +145,12 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
     setKanjiChar
   });
 
+  const { updateAndDrawBalloonGame } = useBalloonPopGame({
+    calibrated,
+    gameMode,
+    gameType,
+  });
+
   // Latest-ref mirrors for game callbacks/state consumed inside the once-created
   // 60fps render loop. The loop captures the FIRST closure of each hook return,
   // so reading them directly would freeze stale values. Reassigning these refs in
@@ -151,11 +158,13 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
   const updateAndDrawPoseGameRef = useRef(updateAndDrawPoseGame);
   const updateAndDrawTraceGameRef = useRef(updateAndDrawTraceGame);
   const updateAndDrawKanjiGameRef = useRef(updateAndDrawKanjiGame);
+  const updateAndDrawBalloonGameRef = useRef(updateAndDrawBalloonGame);
   const triggerKanjiSuccessRef = useRef(triggerKanjiSuccess);
   const kanjiStateMirrorRef = useRef(kanjiState);
   updateAndDrawPoseGameRef.current = updateAndDrawPoseGame;
   updateAndDrawTraceGameRef.current = updateAndDrawTraceGame;
   updateAndDrawKanjiGameRef.current = updateAndDrawKanjiGame;
+  updateAndDrawBalloonGameRef.current = updateAndDrawBalloonGame;
   triggerKanjiSuccessRef.current = triggerKanjiSuccess;
   kanjiStateMirrorRef.current = kanjiState;
 
@@ -163,6 +172,7 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
     pose: 0,
     trace: 0,
     kanji: 0,
+    balloon: 0,
     quit: 0,
     done: 0,
   });
@@ -259,7 +269,8 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
     btnHoverProgressesRef.current = {
       pose: 0,
       trace: 0,
-      kanji: 0
+      kanji: 0,
+      balloon: 0
     };
     resetPoseGame();
     resetTraceGame();
@@ -589,41 +600,32 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
         // Switch Buttons Configuration (dynamic based on gameplay state)
         const buttonsConfig = [];
         if (!gameModeRef.current) {
-          buttonsConfig.push(
-            {
-              id: "pose" as const,
-              x: clampBtnX(btnCenterX - btnSpacing),
-              kanji: "形",
-              reading: "ポーズあそび",
+          // Four mode buttons, centered symmetrically at offsets ±1.5/±0.5.
+          // Spacing is shrunk if needed so all four fit within the screen
+          // (with a one-radius edge margin), avoiding clamp-induced overlap.
+          const menuButtons = [
+            { id: "pose" as const, kanji: "形", reading: "ポーズあそび", type: "pose" as const },
+            { id: "trace" as const, kanji: "道", reading: "イライラぼう", type: "trace" as const },
+            { id: "kanji" as const, kanji: "書", reading: "かんじかき", type: "kanji" as const },
+            { id: "balloon" as const, kanji: "風", reading: "ふうせんわり", type: "balloon" as const },
+          ];
+          const n = menuButtons.length;
+          const maxSpan = width - 2 * (btnRadius + 8);
+          const menuSpacing = Math.min(btnSpacing, maxSpan / (n - 1));
+          menuButtons.forEach((b, i) => {
+            const offset = i - (n - 1) / 2; // -1.5, -0.5, 0.5, 1.5
+            buttonsConfig.push({
+              id: b.id,
+              x: clampBtnX(btnCenterX + offset * menuSpacing),
+              kanji: b.kanji,
+              reading: b.reading,
               isActive: false,
               action: () => {
                 setGameModeRef.current(true);
-                setGameTypeRef.current("pose");
+                setGameTypeRef.current(b.type);
               }
-            },
-            {
-              id: "trace" as const,
-              x: btnCenterX,
-              kanji: "道",
-              reading: "イライラぼう",
-              isActive: false,
-              action: () => {
-                setGameModeRef.current(true);
-                setGameTypeRef.current("trace");
-              }
-            },
-            {
-              id: "kanji" as const,
-              x: clampBtnX(btnCenterX + btnSpacing),
-              kanji: "書",
-              reading: "かんじかき",
-              isActive: false,
-              action: () => {
-                setGameModeRef.current(true);
-                setGameTypeRef.current("kanji");
-              }
-            }
-          );
+            });
+          });
         } else {
           // In-game: Quit (and Done for kanji) flank the screen center. When Done
           // is present they sit at ±0.5*spacing; Quit alone stays centered.
@@ -993,6 +995,8 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
             updateAndDrawTraceGameRef.current(ctx, joints, width, height, colors, particlesRef);
           } else if (gameTypeRef.current === "kanji") {
             updateAndDrawKanjiGameRef.current(ctx, joints, width, height, colors, particlesRef, triggerFireworks);
+          } else if (gameTypeRef.current === "balloon") {
+            updateAndDrawBalloonGameRef.current(ctx, joints, width, height, colors, particlesRef, triggerFireworks);
           }
         }
 

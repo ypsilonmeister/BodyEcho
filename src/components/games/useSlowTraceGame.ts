@@ -1,38 +1,23 @@
 import { useRef, useEffect } from "react";
 import { audioSynth } from "../../utils/audioSynth";
 
-// Helper: Calculate parametric path point for Slow Trace mode based on dynamic calibration
+// The fixed course anchor, snapshotted once at countdown so the path does NOT
+// follow the body during play (イライラ棒 = trace a still course with a moving
+// hand). xMid/yMid = shoulder midpoint, wShoulder = shoulder width at snapshot.
+export interface TraceAnchor {
+  xMid: number;
+  yMid: number;
+  wShoulder: number;
+}
+
+// Helper: Calculate parametric path point for Slow Trace mode from a FIXED
+// anchor (not live joints), so the course stays put while the child moves.
 export const getTracePathPoint = (
   s: number,
   pathType: "horizontal" | "vertical" | "sine" | "circle",
-  joints: any,
-  width: number,
-  height: number
+  anchor: TraceAnchor
 ) => {
-  if (!joints.lShoulder || !joints.rShoulder) {
-    // Fallback if shoulders not visible
-    const xMid = width / 2;
-    const yMid = height * 0.45;
-    const rScale = width * 0.25;
-    switch (pathType) {
-      case "horizontal":
-        return { x: xMid + rScale * (2 * s - 1), y: yMid };
-      case "vertical":
-        return { x: xMid, y: yMid + rScale * (2 * s - 1) };
-      case "sine":
-        return { x: xMid + rScale * (2 * s - 1), y: yMid + rScale * 0.3 * Math.sin(2 * Math.PI * s) };
-      case "circle":
-        const angle = Math.PI + Math.PI * s;
-        return { x: xMid + rScale * Math.cos(angle), y: yMid + rScale * Math.sin(angle) };
-    }
-  }
-
-  const xMid = (joints.lShoulder.x + joints.rShoulder.x) / 2;
-  const yMid = (joints.lShoulder.y + joints.rShoulder.y) / 2;
-  const wShoulder = Math.hypot(
-    joints.lShoulder.x - joints.rShoulder.x,
-    joints.lShoulder.y - joints.rShoulder.y
-  );
+  const { xMid, yMid, wShoulder } = anchor;
   const scale = wShoulder * 1.35; // Safe reachable radius
 
   switch (pathType) {
@@ -63,7 +48,7 @@ export const getTracePathPoint = (
 interface UseSlowTraceGameProps {
   calibrated: boolean;
   gameMode: boolean;
-  gameType: "pose" | "trace" | "kanji";
+  gameType: "pose" | "trace" | "kanji" | "balloon";
   traceHand: "left" | "right";
   tracePathType: "horizontal" | "vertical" | "sine" | "circle";
   traceSpeed: "slow" | "medium" | "fast";
@@ -90,6 +75,8 @@ export const useSlowTraceGame = ({
   const traceErrorThrottleRef = useRef<number>(0);
   const traceLastFrameTimeRef = useRef<number>(0);
   const traceIntervalStartRef = useRef<number>(0);
+  // Course anchor, frozen at countdown start. null = not yet captured.
+  const traceAnchorRef = useRef<TraceAnchor | null>(null);
 
   // Sync parameters inside render loop
   const traceHandRef = useRef(traceHand);
@@ -109,6 +96,7 @@ export const useSlowTraceGame = ({
     if (calibrated && gameMode && gameType === "trace") {
       traceStateRef.current = "countdown";
       traceCountdownStartRef.current = Date.now();
+      traceAnchorRef.current = null; // capture fresh on first countdown frame
       traceProgressRef.current = 0;
       traceDirectionRef.current = 1;
       traceScoreRef.current = 0;
@@ -130,7 +118,26 @@ export const useSlowTraceGame = ({
     traceStateRef.current = "idle";
     traceProgressRef.current = 0;
     traceDirectionRef.current = 1;
+    traceAnchorRef.current = null;
     audioSynth.stopTraceChord();
+  };
+
+  // Compute a course anchor from the live shoulders; falls back to screen
+  // center when shoulders aren't visible (mirrors the old fallback path).
+  const computeAnchor = (joints: any, width: number, height: number): TraceAnchor => {
+    if (joints.lShoulder && joints.rShoulder) {
+      return {
+        xMid: (joints.lShoulder.x + joints.rShoulder.x) / 2,
+        yMid: (joints.lShoulder.y + joints.rShoulder.y) / 2,
+        wShoulder: Math.hypot(
+          joints.lShoulder.x - joints.rShoulder.x,
+          joints.lShoulder.y - joints.rShoulder.y
+        ),
+      };
+    }
+    // Fallback: shoulders not visible. width*0.25 was the old reachable radius;
+    // express it as a shoulder width so scale (×1.35) reproduces it.
+    return { xMid: width / 2, yMid: height * 0.45, wShoulder: (width * 0.25) / 1.35 };
   };
 
   const updateAndDrawTraceGame = (
@@ -143,13 +150,16 @@ export const useSlowTraceGame = ({
   ) => {
     const state = traceStateRef.current;
     const now = Date.now();
-    
-    // Get dynamically calibrated center references if possible
-    const hasShoulders = joints.lShoulder && joints.rShoulder;
-    const wShoulder = hasShoulders 
-      ? Math.hypot(joints.lShoulder.x - joints.rShoulder.x, joints.lShoulder.y - joints.rShoulder.y)
-      : width * 0.22;
-    
+
+    // Freeze the course anchor on the first frame after countdown begins, so the
+    // path stays put while the child reaches around. All path math below uses
+    // this frozen anchor — never the live shoulders.
+    if (!traceAnchorRef.current) {
+      traceAnchorRef.current = computeAnchor(joints, width, height);
+    }
+    const anchor = traceAnchorRef.current;
+    const wShoulder = anchor.wShoulder;
+
     // Choose hand color based on settings
     const handColor = traceHandRef.current === "right" ? colors.right : colors.left;
     const handGlow = traceHandRef.current === "right" ? colors.rightGlow : colors.leftGlow;
@@ -161,7 +171,7 @@ export const useSlowTraceGame = ({
       const samplePoints: { x: number; y: number }[] = [];
       const samples = 60;
       for (let i = 0; i <= samples; i++) {
-        const pt = getTracePathPoint(i / samples, tracePathTypeRef.current, joints, width, height);
+        const pt = getTracePathPoint(i / samples, tracePathTypeRef.current, anchor);
         samplePoints.push(pt);
       }
       
@@ -196,7 +206,7 @@ export const useSlowTraceGame = ({
       drawCoursePath(0.4);
       
       // Draw target ball at start
-      const startPt = getTracePathPoint(0, tracePathTypeRef.current, joints, width, height);
+      const startPt = getTracePathPoint(0, tracePathTypeRef.current, anchor);
       ctx.save();
       ctx.beginPath();
       ctx.arc(startPt.x, startPt.y, height * 0.025, 0, 2 * Math.PI);
@@ -263,7 +273,7 @@ export const useSlowTraceGame = ({
       if (traceSpeedRef.current === "slow") tripDuration = 15000;
       if (traceSpeedRef.current === "fast") tripDuration = 6500;
 
-      const targetPt = getTracePathPoint(traceProgressRef.current, tracePathTypeRef.current, joints, width, height);
+      const targetPt = getTracePathPoint(traceProgressRef.current, tracePathTypeRef.current, anchor);
       let isInside = false;
       let dist = 9999;
       const rAllow = wShoulder * 0.28;
