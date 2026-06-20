@@ -85,7 +85,6 @@ interface UseKanjiWritingGameProps {
   kanjiHand: "left" | "right";
   kanjiChar: string;
   kanjiBrushStyle: "neon" | "flame" | "rainbow";
-  kanjiTriggerGesture: "always" | "area";
   setKanjiChar?: (char: string) => void;
 }
 
@@ -96,7 +95,6 @@ export const useKanjiWritingGame = ({
   kanjiHand,
   kanjiChar,
   kanjiBrushStyle,
-  kanjiTriggerGesture,
   setKanjiChar,
 }: UseKanjiWritingGameProps) => {
   const [kanjiState, setKanjiState] = useState<"writing" | "success">("writing");
@@ -109,12 +107,11 @@ export const useKanjiWritingGame = ({
   const kanjiHandRef = useRef(kanjiHand);
   const kanjiCharRef = useRef(kanjiChar);
   const kanjiBrushStyleRef = useRef(kanjiBrushStyle);
-  const kanjiTriggerGestureRef = useRef(kanjiTriggerGesture);
   const kanjiStateRef = useRef<"writing" | "success">("writing");
 
-  // Offscreen mask used by the "area" trigger: the お手本 glyph painted thick
-  // (with のりしろ slack) onto a 1:1 canvas, so we can pixel-test whether the
-  // hand is on a stroke. Rebuilt only when the char or box size changes.
+  // Offscreen stroke mask: the お手本 glyph painted thick (with のりしろ slack)
+  // onto a 1:1 canvas, so we can pixel-test whether the hand is on a stroke.
+  // Rebuilt only when the char or box size changes.
   const maskCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const maskCtxRef = useRef<CanvasRenderingContext2D | null>(null);
   const maskKeyRef = useRef<string>("");
@@ -123,8 +120,7 @@ export const useKanjiWritingGame = ({
     kanjiHandRef.current = kanjiHand;
     kanjiCharRef.current = kanjiChar;
     kanjiBrushStyleRef.current = kanjiBrushStyle;
-    kanjiTriggerGestureRef.current = kanjiTriggerGesture;
-  }, [kanjiHand, kanjiChar, kanjiBrushStyle, kanjiTriggerGesture]);
+  }, [kanjiHand, kanjiChar, kanjiBrushStyle]);
 
   useEffect(() => {
     kanjiStateRef.current = kanjiState;
@@ -267,27 +263,36 @@ export const useKanjiWritingGame = ({
     // Tracking point: primary is index finger, wrist is backup
     const trackingPt = index && index.visibility > 0.5 ? index : wrist;
 
-    // Determine drawing condition.
-    // "area": draw only while the tracking point is on the お手本 glyph stroke
-    //   (pixel-tested against an offscreen mask) — keeps strokes on the lines.
-    // "always": draw whenever the hand is tracked.
+    // Draw only while the tracking point is on the お手本 glyph stroke
+    // (pixel-tested against an offscreen mask), so strokes stay on the lines and
+    // the pen naturally lifts between separate 画 when the hand leaves a stroke.
     let shouldDraw = false;
-    const trigger = kanjiTriggerGestureRef.current;
     if (trackingPt && trackingPt.visibility > 0.4 && kanjiStateRef.current === "writing") {
-      if (trigger === "always") {
-        shouldDraw = true;
-      } else if (trigger === "area") {
-        ensureMask(kanjiCharRef.current, width, height);
-        shouldDraw = isOnStroke(trackingPt.x, trackingPt.y);
-      }
+      ensureMask(kanjiCharRef.current, width, height);
+      shouldDraw = isOnStroke(trackingPt.x, trackingPt.y);
     }
 
     if (shouldDraw && trackingPt) {
       const currentPoint = { x: trackingPt.x, y: trackingPt.y };
       const lastPoint = currentStrokeRef.current[currentStrokeRef.current.length - 1];
 
-      // Add point if first or moved enough to avoid duplicates
-      if (!lastPoint || Math.hypot(currentPoint.x - lastPoint.x, currentPoint.y - lastPoint.y) > 2) {
+      if (lastPoint) {
+        const jump = Math.hypot(currentPoint.x - lastPoint.x, currentPoint.y - lastPoint.y);
+        // Pen-lift on a big jump (e.g. hopping between two nearby 画, or a
+        // tracking glitch): commit the current stroke and start a fresh one
+        // instead of drawing a long connector that makes the kanji look like
+        // 一筆書き. Threshold scales with the writing box.
+        const jumpLimit = getKanjiBox(width, height).boxSize * 0.22;
+        if (jump > jumpLimit) {
+          if (currentStrokeRef.current.length > 1) {
+            strokesRef.current.push([...currentStrokeRef.current]);
+          }
+          currentStrokeRef.current = [currentPoint];
+        } else if (jump > 2) {
+          // Add point only if moved enough, to avoid duplicate spam.
+          currentStrokeRef.current.push(currentPoint);
+        }
+      } else {
         currentStrokeRef.current.push(currentPoint);
       }
 

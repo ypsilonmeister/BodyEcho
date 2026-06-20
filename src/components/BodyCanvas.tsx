@@ -40,7 +40,6 @@ interface BodyCanvasProps {
   kanjiChar: string;
   setKanjiChar: (val: string) => void;
   kanjiBrushStyle: "neon" | "flame" | "rainbow";
-  kanjiTriggerGesture: "always" | "area";
 }
 
 // Queue size for trails
@@ -68,7 +67,6 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
   kanjiChar,
   setKanjiChar,
   kanjiBrushStyle,
-  kanjiTriggerGesture,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -141,7 +139,6 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
     kanjiHand,
     kanjiChar,
     kanjiBrushStyle,
-    kanjiTriggerGesture,
     setKanjiChar
   });
 
@@ -1179,6 +1176,13 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
   const handleResetCheck = (pose: any) => {
     if (!calibratedRef.current) return;
 
+    // Disable the banzai/Y-pose reset while a game is active: games have their
+    // own quit button, and raising both arms collides with poses like STAR.
+    if (gameModeRef.current) {
+      cancelReset();
+      return;
+    }
+
     const lWrist = pose[15];
     const rWrist = pose[16];
     const nose = pose[0];
@@ -1478,11 +1482,7 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
               alignItems: "center",
               gap: 4
             }}>
-              <span>
-                {kanjiTriggerGesture === "always"
-                  ? "✍️ 常に描く"
-                  : "✏️ お手本の線の上をなぞると描けるよ"}
-              </span>
+              <span>✏️ お手本の線の上をなぞると描けるよ</span>
             </div>
             
             <div style={{ fontSize: 10, color: "rgba(255, 255, 255, 0.3)", marginTop: 4 }}>

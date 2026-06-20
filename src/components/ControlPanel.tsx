@@ -53,8 +53,6 @@ interface ControlPanelProps {
   setKanjiChar: (val: string) => void;
   kanjiBrushStyle: "neon" | "flame" | "rainbow";
   setKanjiBrushStyle: (val: "neon" | "flame" | "rainbow") => void;
-  kanjiTriggerGesture: "always" | "area";
-  setKanjiTriggerGesture: (val: "always" | "area") => void;
 }
 
 export const ControlPanel: React.FC<ControlPanelProps> = ({
@@ -97,8 +95,6 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   setKanjiChar,
   kanjiBrushStyle,
   setKanjiBrushStyle,
-  kanjiTriggerGesture,
-  setKanjiTriggerGesture,
 }) => {
   const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = parseFloat(e.target.value);
@@ -312,18 +308,6 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                 >
                   <option value="right">右手 (Right Hand)</option>
                   <option value="left">左手 (Left Hand)</option>
-                </select>
-              </div>
-
-              <div>
-                <label>Drawing Trigger / 描画のじょうけん</label>
-                <select
-                  value={kanjiTriggerGesture}
-                  onChange={(e) => setKanjiTriggerGesture(e.target.value as "always" | "area")}
-                  className="control-select"
-                >
-                  <option value="area">お手本の線の上で描画 (Draw On Strokes)</option>
-                  <option value="always">常に描画 (Always Draw)</option>
                 </select>
               </div>
 
