@@ -4,6 +4,7 @@ import usePoseMatchingGame from "./games/usePoseMatchingGame";
 import useSlowTraceGame from "./games/useSlowTraceGame";
 import useKanjiWritingGame, { kanjiList, getKanjiBox, KANJI_GUIDE_FONT, KANJI_GUIDE_SLACK } from "./games/useKanjiWritingGame";
 import useBalloonPopGame from "./games/useBalloonPopGame";
+import useCatchDodgeGame from "./games/useCatchDodgeGame";
 import {
   calculateAngle,
   drawBone,
@@ -30,8 +31,8 @@ interface BodyCanvasProps {
   cameraBackground: "calibration" | "always" | "never";
   gameMode: boolean;
   setGameMode: (val: boolean) => void;
-  gameType: "pose" | "trace" | "kanji" | "balloon";
-  setGameType: (val: "pose" | "trace" | "kanji" | "balloon") => void;
+  gameType: "pose" | "trace" | "kanji" | "balloon" | "catch";
+  setGameType: (val: "pose" | "trace" | "kanji" | "balloon" | "catch") => void;
   traceHand: "left" | "right";
   tracePathType: "horizontal" | "vertical" | "sine" | "circle";
   traceSpeed: "slow" | "medium" | "fast";
@@ -148,6 +149,12 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
     gameType,
   });
 
+  const { updateAndDrawCatchGame } = useCatchDodgeGame({
+    calibrated,
+    gameMode,
+    gameType,
+  });
+
   // Latest-ref mirrors for game callbacks/state consumed inside the once-created
   // 60fps render loop. The loop captures the FIRST closure of each hook return,
   // so reading them directly would freeze stale values. Reassigning these refs in
@@ -156,12 +163,14 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
   const updateAndDrawTraceGameRef = useRef(updateAndDrawTraceGame);
   const updateAndDrawKanjiGameRef = useRef(updateAndDrawKanjiGame);
   const updateAndDrawBalloonGameRef = useRef(updateAndDrawBalloonGame);
+  const updateAndDrawCatchGameRef = useRef(updateAndDrawCatchGame);
   const triggerKanjiSuccessRef = useRef(triggerKanjiSuccess);
   const kanjiStateMirrorRef = useRef(kanjiState);
   updateAndDrawPoseGameRef.current = updateAndDrawPoseGame;
   updateAndDrawTraceGameRef.current = updateAndDrawTraceGame;
   updateAndDrawKanjiGameRef.current = updateAndDrawKanjiGame;
   updateAndDrawBalloonGameRef.current = updateAndDrawBalloonGame;
+  updateAndDrawCatchGameRef.current = updateAndDrawCatchGame;
   triggerKanjiSuccessRef.current = triggerKanjiSuccess;
   kanjiStateMirrorRef.current = kanjiState;
 
@@ -170,9 +179,15 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
     trace: 0,
     kanji: 0,
     balloon: 0,
+    catch: 0,
     quit: 0,
     done: 0,
   });
+  // Timestamp until which air-button hovering is ignored. Set when any button
+  // fires, so a hand still lingering over the (now-changed) button layout can't
+  // instantly re-trigger a different button — e.g. quitting a game and having
+  // the centered menu button fire immediately. (ms epoch)
+  const btnCooldownUntilRef = useRef<number>(0);
 
   // Persistent smoothed joints array (for 33 landmarks)
   const smoothedJointsRef = useRef<Array<{ x: number; y: number; z: number; visibility: number } | null>>(
@@ -267,7 +282,8 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
       pose: 0,
       trace: 0,
       kanji: 0,
-      balloon: 0
+      balloon: 0,
+      catch: 0
     };
     resetPoseGame();
     resetTraceGame();
@@ -597,20 +613,21 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
         // Switch Buttons Configuration (dynamic based on gameplay state)
         const buttonsConfig = [];
         if (!gameModeRef.current) {
-          // Four mode buttons, centered symmetrically at offsets ±1.5/±0.5.
-          // Spacing is shrunk if needed so all four fit within the screen
-          // (with a one-radius edge margin), avoiding clamp-induced overlap.
+          // Mode buttons, centered symmetrically. Spacing is shrunk if needed so
+          // they all fit within the screen (with a one-radius edge margin),
+          // avoiding clamp-induced overlap when there are many buttons.
           const menuButtons = [
             { id: "pose" as const, kanji: "形", reading: "ポーズあそび", type: "pose" as const },
             { id: "trace" as const, kanji: "道", reading: "イライラぼう", type: "trace" as const },
             { id: "kanji" as const, kanji: "書", reading: "かんじかき", type: "kanji" as const },
             { id: "balloon" as const, kanji: "風", reading: "ふうせんわり", type: "balloon" as const },
+            { id: "catch" as const, kanji: "心", reading: "キャッチ", type: "catch" as const },
           ];
           const n = menuButtons.length;
           const maxSpan = width - 2 * (btnRadius + 8);
           const menuSpacing = Math.min(btnSpacing, maxSpan / (n - 1));
           menuButtons.forEach((b, i) => {
-            const offset = i - (n - 1) / 2; // -1.5, -0.5, 0.5, 1.5
+            const offset = i - (n - 1) / 2; // symmetric around center
             buttonsConfig.push({
               id: b.id,
               x: clampBtnX(btnCenterX + offset * menuSpacing),
@@ -653,10 +670,15 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
           }
         }
 
-        // Update Button Progresses and Check Trigger Collisions
+        // Update Button Progresses and Check Trigger Collisions.
+        // During the post-trigger cooldown, drain all progress and ignore hovers
+        // so a lingering hand doesn't immediately fire a freshly-shown button.
+        const inBtnCooldown = Date.now() < btnCooldownUntilRef.current;
         buttonsConfig.forEach((btn) => {
-          const hoverState = checkButtonHover(btn.x, btnY, collisionRadius);
-          
+          const hoverState = inBtnCooldown
+            ? { hovered: false, pointer: null }
+            : checkButtonHover(btn.x, btnY, collisionRadius);
+
           if (hoverState.hovered) {
             btnHoverProgressesRef.current[btn.id] = Math.min(100, btnHoverProgressesRef.current[btn.id] + 1.8);
             
@@ -679,7 +701,12 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
               audioSynth.playGoalAchieved();
               triggerFireworks(btn.x, btnY, colors);
               btn.action();
-              btnHoverProgressesRef.current[btn.id] = 0; // reset
+              // Reset every button's progress and start a cooldown so the
+              // changed layout doesn't re-fire under the still-hovering hand.
+              Object.keys(btnHoverProgressesRef.current).forEach((k) => {
+                btnHoverProgressesRef.current[k] = 0;
+              });
+              btnCooldownUntilRef.current = Date.now() + 1200;
             }
           } else {
             btnHoverProgressesRef.current[btn.id] = Math.max(0, btnHoverProgressesRef.current[btn.id] - 4);
@@ -994,6 +1021,8 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
             updateAndDrawKanjiGameRef.current(ctx, joints, width, height, colors, particlesRef, triggerFireworks);
           } else if (gameTypeRef.current === "balloon") {
             updateAndDrawBalloonGameRef.current(ctx, joints, width, height, colors, particlesRef, triggerFireworks);
+          } else if (gameTypeRef.current === "catch") {
+            updateAndDrawCatchGameRef.current(ctx, joints, width, height, colors, particlesRef, triggerFireworks);
           }
         }
 

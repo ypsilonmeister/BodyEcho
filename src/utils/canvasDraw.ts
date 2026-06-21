@@ -3,6 +3,12 @@
 
 import type { Particle, Ripple } from "../types";
 
+// Canvas's ctx.font does NOT resolve CSS variables (var(--font-sans)); an
+// unparseable font string silently falls back to ~10px sans-serif. Always use
+// these literal stacks for canvas text.
+export const CANVAS_FONT_SANS = "Outfit, 'Hiragino Kaku Gothic ProN', 'Yu Gothic', sans-serif";
+export const CANVAS_FONT_MONO = "'JetBrains Mono', 'Courier New', monospace";
+
 // Vector angle calculation helper (used by skeleton drawing and game hooks)
 export const calculateAngle = (
   a: { x: number; y: number } | null,

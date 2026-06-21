@@ -1,5 +1,6 @@
 import { useRef, useEffect } from "react";
 import { audioSynth } from "../../utils/audioSynth";
+import { CANVAS_FONT_SANS, CANVAS_FONT_MONO } from "../../utils/canvasDraw";
 
 interface Balloon {
   x: number;
@@ -31,6 +32,10 @@ export const useBalloonPopGame = ({
   const balloonsRef = useRef<Balloon[]>([]);
   const scoreRef = useRef<number>(0);
   const lastSpawnRef = useRef<number>(0);
+  // Reachable play area, snapshotted at game start so balloons spawn within
+  // arm's reach of where the child stands (not the whole — possibly very wide —
+  // screen). { cx, halfW } in canvas pixels; null until captured.
+  const playAreaRef = useRef<{ cx: number; halfW: number } | null>(null);
 
   // Lifecycle: enter countdown when this game becomes active, reset on exit.
   useEffect(() => {
@@ -40,6 +45,7 @@ export const useBalloonPopGame = ({
       balloonsRef.current = [];
       scoreRef.current = 0;
       lastSpawnRef.current = 0;
+      playAreaRef.current = null; // capture on first frame
     } else {
       stateRef.current = "idle";
       balloonsRef.current = [];
@@ -54,11 +60,13 @@ export const useBalloonPopGame = ({
 
   const spawnBalloon = (width: number, height: number) => {
     const r = height * (0.05 + Math.random() * 0.03);
-    // Keep balloons inside the reachable play area and clear of the top
-    // air-button zone (buttons sit up to ~height*0.32).
-    const margin = r + height * 0.02;
-    const x = margin + Math.random() * (width - 2 * margin);
-    const y = height * 0.36 + Math.random() * (height * 0.58 - margin);
+    const area = playAreaRef.current ?? { cx: width / 2, halfW: width * 0.4 };
+    // Spawn within the reachable area (centered on the child), clamped to the
+    // screen, and below the top air-button zone (buttons sit up to ~height*0.32).
+    const minX = Math.max(r + height * 0.02, area.cx - area.halfW);
+    const maxX = Math.min(width - r - height * 0.02, area.cx + area.halfW);
+    const x = minX + Math.random() * Math.max(0, maxX - minX);
+    const y = height * 0.36 + Math.random() * (height * 0.5);
     balloonsRef.current.push({
       x,
       y,
@@ -81,6 +89,22 @@ export const useBalloonPopGame = ({
     const state = stateRef.current;
     const now = Date.now();
 
+    // Capture the reachable play area once, from the shoulders (center +
+    // ~2.2× shoulder width of reach on each side). Fixed for the whole game so
+    // balloons don't drift across very wide screens.
+    if (!playAreaRef.current) {
+      if (joints.lShoulder && joints.rShoulder) {
+        const cx = (joints.lShoulder.x + joints.rShoulder.x) / 2;
+        const sw = Math.hypot(
+          joints.lShoulder.x - joints.rShoulder.x,
+          joints.lShoulder.y - joints.rShoulder.y
+        );
+        playAreaRef.current = { cx, halfW: Math.max(sw * 2.2, width * 0.18) };
+      } else {
+        playAreaRef.current = { cx: width / 2, halfW: width * 0.4 };
+      }
+    }
+
     // Body points that can pop a balloon: hands, feet, knees, head.
     const hitPoints: Array<{ x: number; y: number }> = [];
     const candidates = [
@@ -99,7 +123,7 @@ export const useBalloonPopGame = ({
       const count = Math.ceil(3 - elapsed / 1000);
 
       ctx.save();
-      ctx.font = `bold ${height * 0.08}px Outfit, 'Hiragino Kaku Gothic ProN', 'Yu Gothic', sans-serif`;
+      ctx.font = `bold ${height * 0.08}px ${CANVAS_FONT_SANS}`;
       ctx.fillStyle = "#ffffff";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
@@ -107,7 +131,7 @@ export const useBalloonPopGame = ({
       ctx.shadowColor = colors.rightGlow;
       ctx.fillText(String(count > 0 ? count : "スタート！"), width / 2, height * 0.45);
 
-      ctx.font = `bold ${height * 0.026}px Outfit, 'Hiragino Kaku Gothic ProN', 'Yu Gothic', sans-serif`;
+      ctx.font = `bold ${height * 0.034}px ${CANVAS_FONT_SANS}`;
       ctx.fillStyle = colors.right;
       ctx.fillText("ふうせんを 手や足でタッチして われ！", width / 2, height * 0.35);
       ctx.restore();
@@ -123,7 +147,7 @@ export const useBalloonPopGame = ({
 
     if (state === "timeup") {
       ctx.save();
-      ctx.font = `bold ${height * 0.06}px Outfit, 'Hiragino Kaku Gothic ProN', 'Yu Gothic', sans-serif`;
+      ctx.font = `bold ${height * 0.06}px ${CANVAS_FONT_SANS}`;
       ctx.fillStyle = "#ffb700";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
@@ -131,11 +155,11 @@ export const useBalloonPopGame = ({
       ctx.shadowColor = "rgba(255, 183, 0, 0.4)";
       ctx.fillText("タイムアップ！", width / 2, height * 0.42);
 
-      ctx.font = `bold ${height * 0.04}px Outfit, 'Hiragino Kaku Gothic ProN', 'Yu Gothic', sans-serif`;
+      ctx.font = `bold ${height * 0.04}px ${CANVAS_FONT_SANS}`;
       ctx.fillStyle = "#ffffff";
       ctx.fillText(`${scoreRef.current}こ われたよ！`, width / 2, height * 0.52);
 
-      ctx.font = `500 ${height * 0.022}px Outfit, 'Hiragino Kaku Gothic ProN', 'Yu Gothic', sans-serif`;
+      ctx.font = `500 ${height * 0.03}px ${CANVAS_FONT_SANS}`;
       ctx.fillStyle = "var(--text-secondary)";
       ctx.fillText("よくがんばったね！", width / 2, height * 0.58);
       ctx.restore();
@@ -239,7 +263,7 @@ export const useBalloonPopGame = ({
 
     // HUD: time + score.
     ctx.save();
-    ctx.font = `bold ${height * 0.028}px 'JetBrains Mono', monospace`;
+    ctx.font = `bold ${height * 0.036}px ${CANVAS_FONT_MONO}`;
     ctx.fillStyle = "#ffffff";
     ctx.textAlign = "left";
     ctx.shadowBlur = 8;

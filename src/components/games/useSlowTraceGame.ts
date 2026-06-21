@@ -1,5 +1,6 @@
 import { useRef, useEffect } from "react";
 import { audioSynth } from "../../utils/audioSynth";
+import { CANVAS_FONT_SANS, CANVAS_FONT_MONO } from "../../utils/canvasDraw";
 
 // The fixed course anchor, snapshotted once at countdown so the path does NOT
 // follow the body during play (イライラ棒 = trace a still course with a moving
@@ -48,7 +49,7 @@ export const getTracePathPoint = (
 interface UseSlowTraceGameProps {
   calibrated: boolean;
   gameMode: boolean;
-  gameType: "pose" | "trace" | "kanji" | "balloon";
+  gameType: "pose" | "trace" | "kanji" | "balloon" | "catch";
   traceHand: "left" | "right";
   tracePathType: "horizontal" | "vertical" | "sine" | "circle";
   traceSpeed: "slow" | "medium" | "fast";
@@ -220,7 +221,7 @@ export const useSlowTraceGame = ({
       const count = Math.ceil(3 - (elapsed / 1000));
       
       ctx.save();
-      ctx.font = `bold ${height * 0.08}px var(--font-sans)`;
+      ctx.font = `bold ${height * 0.08}px ${CANVAS_FONT_SANS}`;
       ctx.fillStyle = "#ffffff";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
@@ -228,7 +229,7 @@ export const useSlowTraceGame = ({
       ctx.shadowColor = handGlow;
       ctx.fillText(String(count > 0 ? count : "GO!"), width / 2, height * 0.45);
       
-      ctx.font = `bold ${height * 0.022}px var(--font-sans)`;
+      ctx.font = `bold ${height * 0.032}px ${CANVAS_FONT_SANS}`;
       ctx.fillStyle = handColor;
       ctx.fillText(
         traceHandRef.current === "right" 
@@ -397,7 +398,7 @@ export const useSlowTraceGame = ({
         ctx.restore();
       } else {
         ctx.save();
-        ctx.font = `bold ${height * 0.022}px var(--font-sans)`;
+        ctx.font = `bold ${height * 0.032}px ${CANVAS_FONT_SANS}`;
         ctx.fillStyle = "#ff5555";
         ctx.textAlign = "center";
         ctx.fillText("カメラのなかに 手を入れてね！", width / 2, height * 0.28);
@@ -406,7 +407,7 @@ export const useSlowTraceGame = ({
 
       // Draw HUD
       ctx.save();
-      ctx.font = `bold ${height * 0.028}px var(--font-mono)`;
+      ctx.font = `bold ${height * 0.036}px ${CANVAS_FONT_MONO}`;
       ctx.fillStyle = "#ffffff";
       ctx.textAlign = "left";
       ctx.shadowBlur = 8;
@@ -442,7 +443,7 @@ export const useSlowTraceGame = ({
         : 0;
 
       ctx.save();
-      ctx.font = `bold ${height * 0.06}px var(--font-sans)`;
+      ctx.font = `bold ${height * 0.06}px ${CANVAS_FONT_SANS}`;
       ctx.fillStyle = "#ffb700";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
@@ -450,11 +451,11 @@ export const useSlowTraceGame = ({
       ctx.shadowColor = "rgba(255, 183, 0, 0.4)";
       ctx.fillText("タイムアップ！", width / 2, height * 0.42);
 
-      ctx.font = `bold ${height * 0.028}px var(--font-sans)`;
+      ctx.font = `bold ${height * 0.036}px ${CANVAS_FONT_SANS}`;
       ctx.fillStyle = "#ffffff";
       ctx.fillText(`できたスコア: ${currentAcc}%`, width / 2, height * 0.52);
 
-      ctx.font = `500 ${height * 0.02}px var(--font-sans)`;
+      ctx.font = `500 ${height * 0.028}px ${CANVAS_FONT_SANS}`;
       ctx.fillStyle = "var(--text-secondary)";
       ctx.fillText("よくがんばったね！", width / 2, height * 0.58);
       ctx.restore();
@@ -491,17 +492,17 @@ export const useSlowTraceGame = ({
       ctx.fillStyle = "rgba(0, 240, 255, 0.05)";
       ctx.fill();
 
-      ctx.font = `bold ${height * 0.03}px var(--font-sans)`;
+      ctx.font = `bold ${height * 0.038}px ${CANVAS_FONT_SANS}`;
       ctx.fillStyle = "#ffffff";
       ctx.textAlign = "center";
       ctx.fillText(isInhaling ? "すって〜（すいこむ）" : "はいて〜（はきだす）", width / 2, height * 0.26);
 
-      ctx.font = `bold ${height * 0.022}px var(--font-sans)`;
+      ctx.font = `bold ${height * 0.032}px ${CANVAS_FONT_SANS}`;
       ctx.fillStyle = "var(--color-right)";
       ctx.fillText("深呼吸をしてリラックスしよう", width / 2, height * 0.31);
 
       const remSec = Math.ceil(10 - (elapsed / 1000));
-      ctx.font = `bold ${height * 0.024}px var(--font-mono)`;
+      ctx.font = `bold ${height * 0.03}px ${CANVAS_FONT_MONO}`;
       ctx.fillStyle = "var(--text-secondary)";
       ctx.fillText(`インターバル: ${remSec}s`, width / 2, height * 0.68);
       ctx.restore();
