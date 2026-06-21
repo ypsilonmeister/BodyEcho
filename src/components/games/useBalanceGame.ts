@@ -1,5 +1,6 @@
 import { useRef, useEffect } from "react";
-import { CANVAS_FONT_SANS } from "../../utils/canvasDraw";
+import { audioSynth } from "../../utils/audioSynth";
+import { CANVAS_FONT_SANS, CANVAS_FONT_MONO } from "../../utils/canvasDraw";
 
 interface UseBalanceGameProps {
   calibrated: boolean;
@@ -17,6 +18,15 @@ const HIP_W = 0.6;
 // CoM position smoothing (per frame lerp) — higher = snappier, lower = calmer.
 const SMOOTH = 0.35;
 
+// Dash & Stop game timing.
+const GAME_SECONDS = 50;
+const DASH_MS = 3500; // "ダッシュ！" window
+const STOP_MS = 2500; // "ストップ！" window
+// A "stopped" CoM moves slower than this (× body scale, px/sec).
+const STOP_SPEED = 0.7;
+
+type Phase = "idle" | "countdown" | "dash" | "stop" | "timeup";
+
 export const useBalanceGame = ({
   calibrated,
   gameMode,
@@ -24,41 +34,43 @@ export const useBalanceGame = ({
 }: UseBalanceGameProps) => {
   // Smoothed center of mass (canvas px). null until first valid frame.
   const comRef = useRef<{ x: number; y: number } | null>(null);
-  // Previous CoM for velocity. null until established.
   const prevComRef = useRef<{ x: number; y: number } | null>(null);
-  // Smoothed velocity vector (px/sec).
   const velRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
-  // Baseline (still) reference point and how we got it.
-  const baselineRef = useRef<{ x: number; y: number } | null>(null);
-  // Sway trail (recent CoM positions) for a fading wake.
   const trailRef = useRef<Array<{ x: number; y: number }>>([]);
-  // Auto-baseline: accumulate "is the CoM holding still?" time.
-  const stillSinceRef = useRef<number>(0);
   const lastFrameRef = useRef<number>(0);
+
+  // Game phase machine.
+  const phaseRef = useRef<Phase>("idle");
+  const phaseStartRef = useRef<number>(0);
+  const startTimeRef = useRef<number>(0);
+  const scoreRef = useRef<number>(0);
+  // During a dash, track the peak speed reached (scored when the dash ends).
+  const dashPeakRef = useRef<number>(0);
+  // During a stop, where the CoM was when "stop" began (the freeze target), and
+  // how long it has stayed put.
+  const stopAnchorRef = useRef<{ x: number; y: number } | null>(null);
+  const stopHeldMsRef = useRef<number>(0);
+  // Flash banner timestamp + text for phase-end feedback.
+  const flashRef = useRef<{ at: number; text: string; good: boolean }>({ at: 0, text: "", good: true });
 
   useEffect(() => {
     if (calibrated && gameMode && gameType === "balance") {
       comRef.current = null;
       prevComRef.current = null;
       velRef.current = { x: 0, y: 0 };
-      baselineRef.current = null;
       trailRef.current = [];
-      stillSinceRef.current = 0;
       lastFrameRef.current = Date.now();
+      phaseRef.current = "countdown";
+      phaseStartRef.current = Date.now();
+      scoreRef.current = 0;
+    } else {
+      phaseRef.current = "idle";
     }
   }, [calibrated, gameMode, gameType]);
 
   const reset = () => {
-    baselineRef.current = null;
+    phaseRef.current = "idle";
     trailRef.current = [];
-  };
-
-  // Allow the baseline to be re-captured at the current CoM (e.g. a button or
-  // an external trigger). Exposed for future wiring; safe no-op if no CoM yet.
-  const recenter = () => {
-    if (comRef.current) {
-      baselineRef.current = { ...comRef.current };
-    }
   };
 
   const updateAndDrawBalanceGame = (
@@ -67,29 +79,34 @@ export const useBalanceGame = ({
     width: number,
     height: number,
     colors: any,
-    _particlesRef: React.MutableRefObject<any[]>
+    particlesRef: React.MutableRefObject<any[]>
   ) => {
     const now = Date.now();
     const dt = Math.min(0.05, Math.max(0.001, (now - lastFrameRef.current) / 1000));
     lastFrameRef.current = now;
 
-    const haveShoulders = joints.lShoulder && joints.rShoulder &&
-      joints.lShoulder.visibility > 0.5 && joints.rShoulder.visibility > 0.5;
-    const haveHips = joints.lHip && joints.rHip &&
-      joints.lHip.visibility > 0.5 && joints.rHip.visibility > 0.5;
-
-    if (!haveShoulders || !haveHips) {
+    const drawCenterText = (text: string, y: number, size: number, color: string) => {
       ctx.save();
-      ctx.font = `bold ${height * 0.034}px ${CANVAS_FONT_SANS}`;
-      ctx.fillStyle = "#ff8888";
+      ctx.font = `bold ${height * size}px ${CANVAS_FONT_SANS}`;
+      ctx.fillStyle = color;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.fillText("からだ全体を カメラにうつしてね！", width / 2, height * 0.3);
+      ctx.shadowBlur = 12;
+      ctx.shadowColor = colors.rightGlow;
+      ctx.fillText(text, width / 2, height * y);
       ctx.restore();
+    };
+
+    const haveBody = joints.lShoulder && joints.rShoulder && joints.lHip && joints.rHip &&
+      joints.lShoulder.visibility > 0.5 && joints.rShoulder.visibility > 0.5 &&
+      joints.lHip.visibility > 0.5 && joints.rHip.visibility > 0.5;
+
+    if (!haveBody) {
+      drawCenterText("からだ全体を カメラにうつしてね！", 0.3, 0.034, "#ff8888");
       return;
     }
 
-    // Center of mass = weighted blend of shoulder-mid and hip-mid.
+    // --- Center of mass + velocity ---
     const shoulderMid = {
       x: (joints.lShoulder.x + joints.rShoulder.x) / 2,
       y: (joints.lShoulder.y + joints.rShoulder.y) / 2,
@@ -102,8 +119,6 @@ export const useBalanceGame = ({
       x: shoulderMid.x * SHOULDER_W + hipMid.x * HIP_W,
       y: shoulderMid.y * SHOULDER_W + hipMid.y * HIP_W,
     };
-
-    // Smooth the CoM.
     if (!comRef.current) {
       comRef.current = { ...rawCom };
     } else {
@@ -114,7 +129,6 @@ export const useBalanceGame = ({
     }
     const com = comRef.current;
 
-    // Velocity (px/sec), smoothed.
     if (prevComRef.current) {
       const vx = (com.x - prevComRef.current.x) / dt;
       const vy = (com.y - prevComRef.current.y) / dt;
@@ -125,114 +139,194 @@ export const useBalanceGame = ({
     }
     prevComRef.current = { ...com };
 
-    // Use shoulder width as a body-scale reference for thresholds/lengths.
     const bodyScale = Math.hypot(
       joints.lShoulder.x - joints.rShoulder.x,
       joints.lShoulder.y - joints.rShoulder.y
     );
     const speed = Math.hypot(velRef.current.x, velRef.current.y);
-
-    // Auto-capture baseline: when the CoM has been nearly still for ~1.2s.
-    if (!baselineRef.current) {
-      if (speed < bodyScale * 0.6) {
-        if (stillSinceRef.current === 0) stillSinceRef.current = now;
-        if (now - stillSinceRef.current > 1200) {
-          baselineRef.current = { ...com };
-        }
-      } else {
-        stillSinceRef.current = 0;
-      }
-    }
+    // Normalize speed by body scale so it's distance-independent.
+    const normSpeed = speed / Math.max(1, bodyScale);
 
     // Sway trail.
     trailRef.current.push({ x: com.x, y: com.y });
     if (trailRef.current.length > 40) trailRef.current.shift();
 
-    // ---- Draw ----
-    ctx.save();
+    const phase = phaseRef.current;
+    const phaseElapsed = now - phaseStartRef.current;
 
-    // Sway trail (fading wake).
-    for (let i = 0; i < trailRef.current.length; i++) {
-      const p = trailRef.current[i];
-      const a = (i / trailRef.current.length) * 0.4;
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, bodyScale * 0.04, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(0, 240, 255, ${a})`;
-      ctx.fill();
-    }
-
-    const baseline = baselineRef.current;
-
-    // Baseline marker (◎) + deviation arrow (baseline -> current).
-    if (baseline) {
-      ctx.beginPath();
-      ctx.arc(baseline.x, baseline.y, bodyScale * 0.16, 0, Math.PI * 2);
-      ctx.strokeStyle = "rgba(255,255,255,0.35)";
-      ctx.lineWidth = 2;
-      ctx.setLineDash([5, 5]);
-      ctx.stroke();
-      ctx.setLineDash([]);
-      ctx.beginPath();
-      ctx.arc(baseline.x, baseline.y, bodyScale * 0.04, 0, Math.PI * 2);
-      ctx.fillStyle = "rgba(255,255,255,0.5)";
-      ctx.fill();
-
-      const dx = com.x - baseline.x;
-      const dy = com.y - baseline.y;
-      const dev = Math.hypot(dx, dy);
-      // Deviation arrow: longer/redder the further from baseline.
-      if (dev > bodyScale * 0.05) {
-        const devNorm = Math.min(1, dev / (bodyScale * 1.2));
-        const devColor = `hsl(${(1 - devNorm) * 130}, 100%, 55%)`; // green→red
-        drawArrow(ctx, baseline.x, baseline.y, com.x, com.y, bodyScale * 0.05, devColor, 0.85);
+    // --- Phase machine ---
+    if (phase === "countdown") {
+      const count = Math.ceil(3 - phaseElapsed / 1000);
+      drawCenterText(String(count > 0 ? count : "ようい！"), 0.45, 0.08, "#ffffff");
+      drawCenterText("「だるまさんが…」で うごいて 「ころんだ！」で ピタッ！", 0.33, 0.026, colors.right);
+      if (phaseElapsed >= 3000) {
+        phaseRef.current = "dash";
+        phaseStartRef.current = now;
+        startTimeRef.current = now;
+        dashPeakRef.current = 0;
+      }
+    } else if (phase === "timeup") {
+      drawCenterText("タイムアップ！", 0.42, 0.06, "#ffb700");
+      drawCenterText(`スコア: ${scoreRef.current}`, 0.52, 0.04, "#ffffff");
+      drawCenterText("よくがんばったね！", 0.58, 0.028, "#cccccc");
+      drawCoM(ctx, com, velRef.current, bodyScale, normSpeed, colors, null, particlesRef);
+      return;
+    } else if (phase === "dash") {
+      // Track peak speed; score it when the dash ends.
+      dashPeakRef.current = Math.max(dashPeakRef.current, normSpeed);
+      if (phaseElapsed >= DASH_MS) {
+        // Award speed points: 0..~6 normSpeed → up to ~30 pts.
+        const pts = Math.round(Math.min(30, dashPeakRef.current * 6));
+        scoreRef.current += pts;
+        flashRef.current = { at: now, text: pts > 12 ? `はやい！ +${pts}` : `+${pts}`, good: pts > 6 };
+        // Move into the stop phase, anchoring where they are now.
+        phaseRef.current = "stop";
+        phaseStartRef.current = now;
+        stopAnchorRef.current = { ...com };
+        stopHeldMsRef.current = 0;
+        audioSynth.playJointClick(700);
+      }
+    } else if (phase === "stop") {
+      // Accumulate held-still time while the CoM stays slow & near the anchor.
+      const anchor = stopAnchorRef.current!;
+      const nearAnchor = Math.hypot(com.x - anchor.x, com.y - anchor.y) < bodyScale * 0.6;
+      if (normSpeed < STOP_SPEED && nearAnchor) {
+        stopHeldMsRef.current += dt * 1000;
+      } else {
+        // Drifted — reset the anchor to current so they can re-settle.
+        stopHeldMsRef.current = Math.max(0, stopHeldMsRef.current - dt * 1500);
+        stopAnchorRef.current = { ...com };
+      }
+      if (phaseElapsed >= STOP_MS) {
+        // Bonus for how much of the window was held still.
+        const heldFrac = Math.min(1, stopHeldMsRef.current / (STOP_MS * 0.7));
+        const pts = Math.round(heldFrac * 20);
+        scoreRef.current += pts;
+        flashRef.current = {
+          at: now,
+          text: pts > 12 ? `ピタッ！ +${pts}` : (pts > 0 ? `+${pts}` : "うごいちゃった"),
+          good: pts > 6,
+        };
+        if (pts > 6) audioSynth.playGoalAchieved();
+        // Next dash.
+        phaseRef.current = "dash";
+        phaseStartRef.current = now;
+        dashPeakRef.current = 0;
       }
     }
 
-    // Motion arrow: current CoM along the velocity vector (where it's heading).
-    if (speed > bodyScale * 0.4) {
-      // Scale the velocity into a visible arrow length (capped).
-      const t = Math.min(1, speed / (bodyScale * 6));
-      const len = bodyScale * (0.2 + t * 0.6);
-      const ang = Math.atan2(velRef.current.y, velRef.current.x);
-      const tipX = com.x + Math.cos(ang) * len;
-      const tipY = com.y + Math.sin(ang) * len;
-      const motColor = `hsl(${40 - t * 40}, 100%, 55%)`; // yellow→red with speed
-      drawArrow(ctx, com.x, com.y, tipX, tipY, bodyScale * 0.045, motColor, 0.95);
+    // End of game? (read the live phase — it may have advanced above)
+    const livePhase = phaseRef.current;
+    if (livePhase === "dash" || livePhase === "stop") {
+      const totalElapsed = now - startTimeRef.current;
+      if (totalElapsed >= GAME_SECONDS * 1000) {
+        phaseRef.current = "timeup";
+        phaseStartRef.current = now;
+        audioSynth.playGoalAchieved();
+      }
     }
 
-    // Current CoM dot.
-    ctx.beginPath();
-    ctx.arc(com.x, com.y, bodyScale * 0.07, 0, Math.PI * 2);
-    ctx.fillStyle = "#00f0ff";
-    ctx.shadowBlur = 18;
-    ctx.shadowColor = colors.rightGlow;
-    ctx.fill();
-    ctx.restore();
+    // --- Draw CoM + arrows + trail ---
+    const stopAnchor = phaseRef.current === "stop" ? stopAnchorRef.current : null;
+    drawCoM(ctx, com, velRef.current, bodyScale, normSpeed, colors, stopAnchor, particlesRef);
 
-    // HUD / coaching text.
+    // --- Phase banner + HUD ---
+    if (phaseRef.current === "dash") {
+      drawCenterText("だるまさんが…！ はやく うごこう！", 0.13, 0.038, "#ff5544");
+      // Speed meter.
+      drawSpeedMeter(ctx, width, height, Math.min(1, normSpeed / 6));
+    } else if (phaseRef.current === "stop") {
+      const remain = Math.max(0, STOP_MS - phaseElapsed);
+      const stoppedNow = normSpeed < STOP_SPEED;
+      drawCenterText("ころんだ！ ピタッと とまって！", 0.13, 0.04, stoppedNow ? "#00ff88" : "#ffb700");
+      drawCenterText(`${(remain / 1000).toFixed(1)}`, 0.21, 0.05, stoppedNow ? "#00ff88" : "#ffffff");
+    }
+
+    // Flash banner for the last phase result.
+    if (now - flashRef.current.at < 900) {
+      drawCenterText(flashRef.current.text, 0.7, 0.05, flashRef.current.good ? "#00ff88" : "#ffb700");
+    }
+
+    // HUD: time + score.
+    const timeLeft = phaseRef.current === "timeup"
+      ? 0
+      : Math.max(0, GAME_SECONDS - Math.floor((now - startTimeRef.current) / 1000));
     ctx.save();
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    if (!baseline) {
-      ctx.font = `bold ${height * 0.03}px ${CANVAS_FONT_SANS}`;
-      ctx.fillStyle = colors.right;
-      ctx.fillText("じっとして 中心をきめよう…", width / 2, height * 0.16);
-    } else {
-      const dev = Math.hypot(com.x - baseline.x, com.y - baseline.y);
-      const stable = dev < bodyScale * 0.25;
-      ctx.font = `bold ${height * 0.032}px ${CANVAS_FONT_SANS}`;
-      ctx.fillStyle = stable ? "#00ff88" : "#ffb700";
-      ctx.fillText(stable ? "バランス いいね！" : "ふらふら…まん中にもどそう", width / 2, height * 0.16);
-    }
+    ctx.font = `bold ${height * 0.034}px ${CANVAS_FONT_MONO}`;
+    ctx.fillStyle = "#ffffff";
+    ctx.textAlign = "left";
+    ctx.shadowBlur = 8;
+    ctx.shadowColor = colors.rightGlow;
+    ctx.fillText(`TIME: ${timeLeft}s`, width * 0.06, height * 0.27);
+    ctx.fillText(`スコア: ${scoreRef.current}`, width * 0.06, height * 0.32);
     ctx.restore();
   };
 
   return {
     reset,
-    recenter,
     updateAndDrawBalanceGame,
   };
 };
+
+// Draw the CoM dot, sway trail, velocity arrow, and (during stop) the freeze
+// target ring. Pulled out so the timeup screen can keep showing the CoM.
+function drawCoM(
+  ctx: CanvasRenderingContext2D,
+  com: { x: number; y: number },
+  vel: { x: number; y: number },
+  bodyScale: number,
+  normSpeed: number,
+  colors: any,
+  stopAnchor: { x: number; y: number } | null,
+  _particlesRef: React.MutableRefObject<any[]>
+) {
+  ctx.save();
+
+  // Freeze target ring during stop phase.
+  if (stopAnchor) {
+    ctx.beginPath();
+    ctx.arc(stopAnchor.x, stopAnchor.y, bodyScale * 0.6, 0, Math.PI * 2);
+    ctx.strokeStyle = "rgba(0,255,136,0.5)";
+    ctx.lineWidth = 2;
+    ctx.setLineDash([6, 6]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  // Motion arrow along the velocity vector.
+  const speed = Math.hypot(vel.x, vel.y);
+  if (speed > bodyScale * 0.4) {
+    const t = Math.min(1, normSpeed / 6);
+    const len = bodyScale * (0.2 + t * 0.7);
+    const ang = Math.atan2(vel.y, vel.x);
+    const tipX = com.x + Math.cos(ang) * len;
+    const tipY = com.y + Math.sin(ang) * len;
+    const motColor = `hsl(${40 - t * 40}, 100%, 55%)`; // yellow→red with speed
+    drawArrow(ctx, com.x, com.y, tipX, tipY, bodyScale * 0.05, motColor, 0.95);
+  }
+
+  // Current CoM dot.
+  ctx.beginPath();
+  ctx.arc(com.x, com.y, bodyScale * 0.08, 0, Math.PI * 2);
+  ctx.fillStyle = stopAnchor && normSpeed < 0.7 ? "#00ff88" : "#00f0ff";
+  ctx.shadowBlur = 18;
+  ctx.shadowColor = colors.rightGlow;
+  ctx.fill();
+  ctx.restore();
+}
+
+// Vertical-ish speed meter bar at the right edge.
+function drawSpeedMeter(ctx: CanvasRenderingContext2D, width: number, height: number, frac: number) {
+  const barW = width * 0.5;
+  const x = width / 2 - barW / 2;
+  const y = height * 0.2;
+  ctx.save();
+  ctx.fillStyle = "rgba(255,255,255,0.12)";
+  ctx.fillRect(x, y, barW, height * 0.016);
+  ctx.fillStyle = `hsl(${40 - frac * 40}, 100%, 55%)`;
+  ctx.fillRect(x, y, barW * frac, height * 0.016);
+  ctx.restore();
+}
 
 // Simple filled arrow from (x1,y1) to (x2,y2).
 function drawArrow(
@@ -250,14 +344,12 @@ function drawArrow(
   ctx.lineWidth = width;
   ctx.shadowBlur = 10;
   ctx.shadowColor = color;
-  // Shaft (stop short so the head sits at the tip).
   const bx = x2 - Math.cos(ang) * head;
   const by = y2 - Math.sin(ang) * head;
   ctx.beginPath();
   ctx.moveTo(x1, y1);
   ctx.lineTo(bx, by);
   ctx.stroke();
-  // Head.
   ctx.beginPath();
   ctx.moveTo(x2, y2);
   ctx.lineTo(bx - Math.sin(ang) * head * 0.5, by + Math.cos(ang) * head * 0.5);

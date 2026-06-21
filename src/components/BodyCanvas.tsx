@@ -621,20 +621,6 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
         const lPointer = getHandPointer("l");
         const rPointer = getHandPointer("r");
 
-        const checkButtonHover = (bx: number, by: number, radius: number) => {
-          if (lPointer && lPointer.visibility > 0.65) {
-            if (Math.hypot(lPointer.x - bx, lPointer.y - by) < radius) {
-              return { hovered: true, pointer: lPointer };
-            }
-          }
-          if (rPointer && rPointer.visibility > 0.65) {
-            if (Math.hypot(rPointer.x - bx, rPointer.y - by) < radius) {
-              return { hovered: true, pointer: rPointer };
-            }
-          }
-          return { hovered: false, pointer: null };
-        };
-
         // Switch Buttons Configuration (dynamic based on gameplay state).
         // Each button carries its own (x, y) so the menu can fan out radially
         // around the player's face instead of a single ever-widening row.
@@ -653,7 +639,7 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
             { id: "trace" as const, kanji: "道", reading: "イライラぼう", type: "trace" as const },
             { id: "balloon" as const, kanji: "風", reading: "ふうせんわり", type: "balloon" as const },
             { id: "catch" as const, kanji: "心", reading: "キャッチ", type: "catch" as const },
-            { id: "balance" as const, kanji: "均", reading: "じゅうしん", type: "balance" as const },
+            { id: "balance" as const, kanji: "止", reading: "だるまさん", type: "balance" as const },
             { id: "command" as const, kanji: "令", reading: "しれいゲーム", type: "command" as const },
           ];
           const n = menuButtons.length;
@@ -710,14 +696,35 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
           }
         }
 
+        // Resolve hovers so each pointer activates only its single NEAREST
+        // button within range. With the radial menu, neighboring hit-circles can
+        // overlap; without this, one hand could sit inside two buttons and drive
+        // both ("複数選択"). Map: button id -> the pointer hovering it.
+        const hoveredBy: Record<string, { x: number; y: number }> = {};
+        const pointers = [lPointer, rPointer].filter(
+          (p) => p && p.visibility > 0.65
+        ) as Array<{ x: number; y: number }>;
+        for (const ptr of pointers) {
+          let nearest: { id: string; x: number; y: number } | null = null;
+          let nearestDist = collisionRadius;
+          for (const btn of buttonsConfig) {
+            const d = Math.hypot(ptr.x - btn.x, ptr.y - btn.y);
+            if (d < nearestDist) {
+              nearestDist = d;
+              nearest = btn;
+            }
+          }
+          if (nearest) hoveredBy[nearest.id] = ptr;
+        }
+
         // Update Button Progresses and Check Trigger Collisions.
         // During the post-trigger cooldown, drain all progress and ignore hovers
         // so a lingering hand doesn't immediately fire a freshly-shown button.
         const inBtnCooldown = Date.now() < btnCooldownUntilRef.current;
         buttonsConfig.forEach((btn) => {
-          const hoverState = inBtnCooldown
+          const hoverState = inBtnCooldown || !hoveredBy[btn.id]
             ? { hovered: false, pointer: null }
-            : checkButtonHover(btn.x, btn.y, collisionRadius);
+            : { hovered: true, pointer: hoveredBy[btn.id] };
 
           if (hoverState.hovered) {
             btnHoverProgressesRef.current[btn.id] = Math.min(100, btnHoverProgressesRef.current[btn.id] + 1.8);

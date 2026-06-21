@@ -222,7 +222,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
               <option value="trace">イライラ棒 (Slow Trace)</option>
               <option value="balloon">風船わり (Balloon Pop)</option>
               <option value="catch">キャッチ＆よけろ (Catch & Dodge)</option>
-              <option value="balance">じゅうしん (Balance / CoM)</option>
+              <option value="balance">スピードだるまさんがころんだ (Dash & Freeze)</option>
               <option value="command">しれいゲーム (Command / Simon)</option>
             </select>
           </div>
