@@ -34,8 +34,8 @@ interface ControlPanelProps {
   setCameraBackground: (val: "calibration" | "always" | "never") => void;
   gameMode: boolean;
   setGameMode: (val: boolean) => void;
-  gameType: "pose" | "trace" | "kanji" | "balloon" | "catch";
-  setGameType: (val: "pose" | "trace" | "kanji" | "balloon" | "catch") => void;
+  gameType: "pose" | "trace" | "kanji" | "balloon" | "catch" | "balance";
+  setGameType: (val: "pose" | "trace" | "kanji" | "balloon" | "catch" | "balance") => void;
   traceHand: "left" | "right";
   setTraceHand: (val: "left" | "right") => void;
   tracePathType: "horizontal" | "vertical" | "sine" | "circle";
@@ -215,14 +215,14 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
             <label>Game Type / ゲームの選択</label>
             <select
               value={gameType}
-              onChange={(e) => setGameType(e.target.value as "pose" | "trace" | "kanji" | "balloon" | "catch")}
+              onChange={(e) => setGameType(e.target.value as "pose" | "trace" | "kanji" | "balloon" | "catch" | "balance")}
               className="control-select"
             >
               <option value="pose">ポーズ合わせ (Pose Matching)</option>
               <option value="trace">イライラ棒 (Slow Trace)</option>
-              <option value="kanji">AR漢字かきかた (AR Kanji Writing)</option>
               <option value="balloon">風船わり (Balloon Pop)</option>
               <option value="catch">キャッチ＆よけろ (Catch & Dodge)</option>
+              <option value="balance">じゅうしん (Balance / CoM)</option>
             </select>
           </div>
         )}

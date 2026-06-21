@@ -46,15 +46,22 @@ export const getTracePathPoint = (
   }
 };
 
+// Round length in seconds (matches the other timed games).
+const TRACE_SECONDS = 45;
+
 interface UseSlowTraceGameProps {
   calibrated: boolean;
   gameMode: boolean;
-  gameType: "pose" | "trace" | "kanji" | "balloon" | "catch";
+  gameType: "pose" | "trace" | "kanji" | "balloon" | "catch" | "balance";
   traceHand: "left" | "right";
   tracePathType: "horizontal" | "vertical" | "sine" | "circle";
+  setTracePathType: (val: "horizontal" | "vertical" | "sine" | "circle") => void;
   traceSpeed: "slow" | "medium" | "fast";
   setGameMode: (val: boolean) => void;
 }
+
+// Order the course shape cycles through after each completed round.
+const TRACE_PATH_CYCLE = ["horizontal", "vertical", "sine", "circle"] as const;
 
 export const useSlowTraceGame = ({
   calibrated,
@@ -62,6 +69,7 @@ export const useSlowTraceGame = ({
   gameType,
   traceHand,
   tracePathType,
+  setTracePathType,
   traceSpeed,
   setGameMode
 }: UseSlowTraceGameProps) => {
@@ -70,7 +78,7 @@ export const useSlowTraceGame = ({
   const traceStartTimeRef = useRef<number>(0);
   const traceProgressRef = useRef<number>(0);
   const traceDirectionRef = useRef<number>(1);
-  const traceTimeLeftRef = useRef<number>(60);
+  const traceTimeLeftRef = useRef<number>(TRACE_SECONDS);
   const traceScoreRef = useRef<number>(0);
   const traceTotalFramesRef = useRef<number>(0);
   const traceErrorThrottleRef = useRef<number>(0);
@@ -84,13 +92,15 @@ export const useSlowTraceGame = ({
   const tracePathTypeRef = useRef(tracePathType);
   const traceSpeedRef = useRef(traceSpeed);
   const setGameModeRef = useRef(setGameMode);
+  const setTracePathTypeRef = useRef(setTracePathType);
 
   useEffect(() => {
     traceHandRef.current = traceHand;
     tracePathTypeRef.current = tracePathType;
     traceSpeedRef.current = traceSpeed;
     setGameModeRef.current = setGameMode;
-  }, [traceHand, tracePathType, traceSpeed, setGameMode]);
+    setTracePathTypeRef.current = setTracePathType;
+  }, [traceHand, tracePathType, traceSpeed, setGameMode, setTracePathType]);
 
   // Manage synth loop lifecycle
   useEffect(() => {
@@ -102,7 +112,7 @@ export const useSlowTraceGame = ({
       traceDirectionRef.current = 1;
       traceScoreRef.current = 0;
       traceTotalFramesRef.current = 0;
-      traceTimeLeftRef.current = 60;
+      traceTimeLeftRef.current = TRACE_SECONDS;
       traceLastFrameTimeRef.current = Date.now();
       audioSynth.startTraceChord();
       audioSynth.setTraceChordActive(false);
@@ -244,7 +254,7 @@ export const useSlowTraceGame = ({
         traceStateRef.current = "playing";
         traceStartTimeRef.current = Date.now();
         traceLastFrameTimeRef.current = Date.now();
-        traceTimeLeftRef.current = 60;
+        traceTimeLeftRef.current = TRACE_SECONDS;
         traceProgressRef.current = 0;
         traceDirectionRef.current = 1;
         traceScoreRef.current = 0;
@@ -256,7 +266,7 @@ export const useSlowTraceGame = ({
       traceLastFrameTimeRef.current = now;
 
       const elapsedPlay = now - traceStartTimeRef.current;
-      const timeLeft = Math.max(0, 60 - Math.floor(elapsedPlay / 1000));
+      const timeLeft = Math.max(0, TRACE_SECONDS - Math.floor(elapsedPlay / 1000));
       traceTimeLeftRef.current = timeLeft;
 
       if (timeLeft <= 0) {
@@ -501,6 +511,17 @@ export const useSlowTraceGame = ({
       ctx.fillStyle = "var(--color-right)";
       ctx.fillText("深呼吸をしてリラックスしよう", width / 2, height * 0.31);
 
+      // Tell the child which course comes next (play continues hands-free).
+      const curIdx = TRACE_PATH_CYCLE.indexOf(tracePathTypeRef.current as typeof TRACE_PATH_CYCLE[number]);
+      const nextShape = TRACE_PATH_CYCLE[(curIdx + 1) % TRACE_PATH_CYCLE.length];
+      const nextLabel =
+        nextShape === "horizontal" ? "まっすぐ線（よこ）" :
+        nextShape === "vertical" ? "まっすぐ線（たて）" :
+        nextShape === "sine" ? "なみの線" : "まるい線";
+      ctx.font = `bold ${height * 0.028}px ${CANVAS_FONT_SANS}`;
+      ctx.fillStyle = "#ffffff";
+      ctx.fillText(`つぎは「${nextLabel}」`, width / 2, height * 0.37);
+
       const remSec = Math.ceil(10 - (elapsed / 1000));
       ctx.font = `bold ${height * 0.03}px ${CANVAS_FONT_MONO}`;
       ctx.fillStyle = "var(--text-secondary)";
@@ -508,8 +529,21 @@ export const useSlowTraceGame = ({
       ctx.restore();
 
       if (elapsed >= 10000) {
-        traceStateRef.current = "idle";
-        setGameModeRef.current(false);
+        // Advance to the next course shape and start a fresh round (countdown),
+        // so play continues hands-free through よこ→たて→なみ→まる→…
+        const idx = TRACE_PATH_CYCLE.indexOf(tracePathTypeRef.current as typeof TRACE_PATH_CYCLE[number]);
+        const next = TRACE_PATH_CYCLE[(idx + 1) % TRACE_PATH_CYCLE.length];
+        tracePathTypeRef.current = next;
+        setTracePathTypeRef.current(next); // keep App/ControlPanel in sync
+
+        traceStateRef.current = "countdown";
+        traceCountdownStartRef.current = Date.now();
+        traceAnchorRef.current = null; // re-snapshot the course for the new shape
+        traceProgressRef.current = 0;
+        traceDirectionRef.current = 1;
+        traceScoreRef.current = 0;
+        traceTotalFramesRef.current = 0;
+        traceTimeLeftRef.current = TRACE_SECONDS;
       }
     }
   };

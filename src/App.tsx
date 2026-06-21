@@ -20,7 +20,7 @@ function App() {
   const [complexity, setComplexity] = useState<PoseComplexity>("lite");
   const [cameraBackground, setCameraBackground] = useState<"calibration" | "always" | "never">("calibration");
   const [gameMode, setGameMode] = useState<boolean>(false);
-  const [gameType, setGameType] = useState<"pose" | "trace" | "kanji" | "balloon" | "catch">("pose");
+  const [gameType, setGameType] = useState<"pose" | "trace" | "kanji" | "balloon" | "catch" | "balance">("pose");
   const [traceHand, setTraceHand] = useState<"left" | "right">("right");
   const [tracePathType, setTracePathType] = useState<"horizontal" | "vertical" | "sine" | "circle">("horizontal");
   const [traceSpeed, setTraceSpeed] = useState<"slow" | "medium" | "fast">("medium");
@@ -379,6 +379,7 @@ function App() {
           setGameType={setGameType}
           traceHand={traceHand}
           tracePathType={tracePathType}
+          setTracePathType={setTracePathType}
           traceSpeed={traceSpeed}
           stretchHighlights={stretchHighlights}
           kanjiHand={kanjiHand}

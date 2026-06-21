@@ -159,17 +159,25 @@ export const useCatchDodgeGame = ({
       }
     }
 
-    // Body points that can touch items: hands, head, feet, knees.
-    const hitPoints: Array<{ x: number; y: number }> = [];
-    const candidates = [
+    // Hearts (catch) can be touched with the whole body — hands, head, feet,
+    // knees — so they're easy and rewarding to grab.
+    const catchPoints: Array<{ x: number; y: number }> = [];
+    const catchCandidates = [
       joints.lWrist, joints.rWrist,
       joints.lIndex, joints.rIndex,
       joints.nose,
       joints.lAnkle, joints.rAnkle,
       joints.lKnee, joints.rKnee,
     ];
-    for (const p of candidates) {
-      if (p && p.visibility > 0.5) hitPoints.push({ x: p.x, y: p.y });
+    for (const p of catchCandidates) {
+      if (p && p.visibility > 0.5) catchPoints.push({ x: p.x, y: p.y });
+    }
+
+    // Spikes (dodge) only hit the head (nose). Dodging the whole body is too
+    // hard/unfair for kids — just keep your head out of the way.
+    const dodgePoints: Array<{ x: number; y: number }> = [];
+    if (joints.nose && joints.nose.visibility > 0.5) {
+      dodgePoints.push({ x: joints.nose.x, y: joints.nose.y });
     }
 
     if (state === "countdown") {
@@ -247,8 +255,10 @@ export const useCatchDodgeGame = ({
       it.y += it.vy * dt;
       it.spin += dt * 2;
 
+      // Hearts test against the whole body; spikes only against the head.
+      const testPoints = it.kind === "heart" ? catchPoints : dodgePoints;
       let touched = false;
-      for (const hp of hitPoints) {
+      for (const hp of testPoints) {
         if (Math.hypot(hp.x - it.x, hp.y - it.y) <= it.r + height * 0.01) {
           touched = true;
           break;

@@ -5,6 +5,7 @@ import useSlowTraceGame from "./games/useSlowTraceGame";
 import useKanjiWritingGame, { kanjiList, getKanjiBox, KANJI_GUIDE_FONT, KANJI_GUIDE_SLACK } from "./games/useKanjiWritingGame";
 import useBalloonPopGame from "./games/useBalloonPopGame";
 import useCatchDodgeGame from "./games/useCatchDodgeGame";
+import useBalanceGame from "./games/useBalanceGame";
 import {
   calculateAngle,
   drawBone,
@@ -31,10 +32,11 @@ interface BodyCanvasProps {
   cameraBackground: "calibration" | "always" | "never";
   gameMode: boolean;
   setGameMode: (val: boolean) => void;
-  gameType: "pose" | "trace" | "kanji" | "balloon" | "catch";
-  setGameType: (val: "pose" | "trace" | "kanji" | "balloon" | "catch") => void;
+  gameType: "pose" | "trace" | "kanji" | "balloon" | "catch" | "balance";
+  setGameType: (val: "pose" | "trace" | "kanji" | "balloon" | "catch" | "balance") => void;
   traceHand: "left" | "right";
   tracePathType: "horizontal" | "vertical" | "sine" | "circle";
+  setTracePathType: (val: "horizontal" | "vertical" | "sine" | "circle") => void;
   traceSpeed: "slow" | "medium" | "fast";
   stretchHighlights: boolean;
   kanjiHand: "left" | "right";
@@ -62,6 +64,7 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
   setGameType,
   traceHand,
   tracePathType,
+  setTracePathType,
   traceSpeed,
   stretchHighlights,
   kanjiHand,
@@ -124,6 +127,7 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
     gameType,
     traceHand,
     tracePathType,
+    setTracePathType,
     traceSpeed,
     setGameMode
   });
@@ -155,6 +159,12 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
     gameType,
   });
 
+  const { updateAndDrawBalanceGame } = useBalanceGame({
+    calibrated,
+    gameMode,
+    gameType,
+  });
+
   // Latest-ref mirrors for game callbacks/state consumed inside the once-created
   // 60fps render loop. The loop captures the FIRST closure of each hook return,
   // so reading them directly would freeze stale values. Reassigning these refs in
@@ -164,6 +174,7 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
   const updateAndDrawKanjiGameRef = useRef(updateAndDrawKanjiGame);
   const updateAndDrawBalloonGameRef = useRef(updateAndDrawBalloonGame);
   const updateAndDrawCatchGameRef = useRef(updateAndDrawCatchGame);
+  const updateAndDrawBalanceGameRef = useRef(updateAndDrawBalanceGame);
   const triggerKanjiSuccessRef = useRef(triggerKanjiSuccess);
   const kanjiStateMirrorRef = useRef(kanjiState);
   updateAndDrawPoseGameRef.current = updateAndDrawPoseGame;
@@ -171,6 +182,7 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
   updateAndDrawKanjiGameRef.current = updateAndDrawKanjiGame;
   updateAndDrawBalloonGameRef.current = updateAndDrawBalloonGame;
   updateAndDrawCatchGameRef.current = updateAndDrawCatchGame;
+  updateAndDrawBalanceGameRef.current = updateAndDrawBalanceGame;
   triggerKanjiSuccessRef.current = triggerKanjiSuccess;
   kanjiStateMirrorRef.current = kanjiState;
 
@@ -180,6 +192,7 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
     kanji: 0,
     balloon: 0,
     catch: 0,
+    balance: 0,
     quit: 0,
     done: 0,
   });
@@ -283,7 +296,8 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
       trace: 0,
       kanji: 0,
       balloon: 0,
-      catch: 0
+      catch: 0,
+      balance: 0
     };
     resetPoseGame();
     resetTraceGame();
@@ -619,9 +633,9 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
           const menuButtons = [
             { id: "pose" as const, kanji: "形", reading: "ポーズあそび", type: "pose" as const },
             { id: "trace" as const, kanji: "道", reading: "イライラぼう", type: "trace" as const },
-            { id: "kanji" as const, kanji: "書", reading: "かんじかき", type: "kanji" as const },
             { id: "balloon" as const, kanji: "風", reading: "ふうせんわり", type: "balloon" as const },
             { id: "catch" as const, kanji: "心", reading: "キャッチ", type: "catch" as const },
+            { id: "balance" as const, kanji: "均", reading: "じゅうしん", type: "balance" as const },
           ];
           const n = menuButtons.length;
           const maxSpan = width - 2 * (btnRadius + 8);
@@ -1023,6 +1037,8 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
             updateAndDrawBalloonGameRef.current(ctx, joints, width, height, colors, particlesRef, triggerFireworks);
           } else if (gameTypeRef.current === "catch") {
             updateAndDrawCatchGameRef.current(ctx, joints, width, height, colors, particlesRef, triggerFireworks);
+          } else if (gameTypeRef.current === "balance") {
+            updateAndDrawBalanceGameRef.current(ctx, joints, width, height, colors, particlesRef);
           }
         }
 
