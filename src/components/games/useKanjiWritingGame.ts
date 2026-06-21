@@ -81,7 +81,7 @@ export const kanjiList: KanjiItem[] = [
 interface UseKanjiWritingGameProps {
   calibrated: boolean;
   gameMode: boolean;
-  gameType: "pose" | "trace" | "kanji" | "balloon" | "catch" | "balance";
+  gameType: "pose" | "trace" | "kanji" | "balloon" | "catch" | "balance" | "command";
   kanjiHand: "left" | "right";
   kanjiChar: string;
   kanjiBrushStyle: "neon" | "flame" | "rainbow";

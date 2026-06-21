@@ -52,7 +52,7 @@ const TRACE_SECONDS = 45;
 interface UseSlowTraceGameProps {
   calibrated: boolean;
   gameMode: boolean;
-  gameType: "pose" | "trace" | "kanji" | "balloon" | "catch" | "balance";
+  gameType: "pose" | "trace" | "kanji" | "balloon" | "catch" | "balance" | "command";
   traceHand: "left" | "right";
   tracePathType: "horizontal" | "vertical" | "sine" | "circle";
   setTracePathType: (val: "horizontal" | "vertical" | "sine" | "circle") => void;

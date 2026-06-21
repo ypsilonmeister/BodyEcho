@@ -6,6 +6,7 @@ import useKanjiWritingGame, { kanjiList, getKanjiBox, KANJI_GUIDE_FONT, KANJI_GU
 import useBalloonPopGame from "./games/useBalloonPopGame";
 import useCatchDodgeGame from "./games/useCatchDodgeGame";
 import useBalanceGame from "./games/useBalanceGame";
+import useCommandGame from "./games/useCommandGame";
 import {
   calculateAngle,
   drawBone,
@@ -32,8 +33,8 @@ interface BodyCanvasProps {
   cameraBackground: "calibration" | "always" | "never";
   gameMode: boolean;
   setGameMode: (val: boolean) => void;
-  gameType: "pose" | "trace" | "kanji" | "balloon" | "catch" | "balance";
-  setGameType: (val: "pose" | "trace" | "kanji" | "balloon" | "catch" | "balance") => void;
+  gameType: "pose" | "trace" | "kanji" | "balloon" | "catch" | "balance" | "command";
+  setGameType: (val: "pose" | "trace" | "kanji" | "balloon" | "catch" | "balance" | "command") => void;
   traceHand: "left" | "right";
   tracePathType: "horizontal" | "vertical" | "sine" | "circle";
   setTracePathType: (val: "horizontal" | "vertical" | "sine" | "circle") => void;
@@ -165,6 +166,12 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
     gameType,
   });
 
+  const { updateAndDrawCommandGame } = useCommandGame({
+    calibrated,
+    gameMode,
+    gameType,
+  });
+
   // Latest-ref mirrors for game callbacks/state consumed inside the once-created
   // 60fps render loop. The loop captures the FIRST closure of each hook return,
   // so reading them directly would freeze stale values. Reassigning these refs in
@@ -175,6 +182,7 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
   const updateAndDrawBalloonGameRef = useRef(updateAndDrawBalloonGame);
   const updateAndDrawCatchGameRef = useRef(updateAndDrawCatchGame);
   const updateAndDrawBalanceGameRef = useRef(updateAndDrawBalanceGame);
+  const updateAndDrawCommandGameRef = useRef(updateAndDrawCommandGame);
   const triggerKanjiSuccessRef = useRef(triggerKanjiSuccess);
   const kanjiStateMirrorRef = useRef(kanjiState);
   updateAndDrawPoseGameRef.current = updateAndDrawPoseGame;
@@ -183,6 +191,7 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
   updateAndDrawBalloonGameRef.current = updateAndDrawBalloonGame;
   updateAndDrawCatchGameRef.current = updateAndDrawCatchGame;
   updateAndDrawBalanceGameRef.current = updateAndDrawBalanceGame;
+  updateAndDrawCommandGameRef.current = updateAndDrawCommandGame;
   triggerKanjiSuccessRef.current = triggerKanjiSuccess;
   kanjiStateMirrorRef.current = kanjiState;
 
@@ -193,6 +202,7 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
     balloon: 0,
     catch: 0,
     balance: 0,
+    command: 0,
     quit: 0,
     done: 0,
   });
@@ -297,7 +307,8 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
       kanji: 0,
       balloon: 0,
       catch: 0,
-      balance: 0
+      balance: 0,
+      command: 0
     };
     resetPoseGame();
     resetTraceGame();
@@ -624,30 +635,43 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
           return { hovered: false, pointer: null };
         };
 
-        // Switch Buttons Configuration (dynamic based on gameplay state)
-        const buttonsConfig = [];
+        // Switch Buttons Configuration (dynamic based on gameplay state).
+        // Each button carries its own (x, y) so the menu can fan out radially
+        // around the player's face instead of a single ever-widening row.
+        const buttonsConfig: Array<{
+          id: string; x: number; y: number; kanji: string; reading: string;
+          isActive: boolean; action: () => void;
+        }> = [];
+        const clampBtnY = (y: number) =>
+          Math.max(btnRadius + 8, Math.min(height - btnRadius - 8, y));
         if (!gameModeRef.current) {
-          // Mode buttons, centered symmetrically. Spacing is shrunk if needed so
-          // they all fit within the screen (with a one-radius edge margin),
-          // avoiding clamp-induced overlap when there are many buttons.
+          // Mode buttons arranged on an arc centered on the face (nose), so they
+          // surround the child within easy reach and never run off the sides as
+          // more games are added. Falls back to screen-center if no face yet.
           const menuButtons = [
             { id: "pose" as const, kanji: "形", reading: "ポーズあそび", type: "pose" as const },
             { id: "trace" as const, kanji: "道", reading: "イライラぼう", type: "trace" as const },
             { id: "balloon" as const, kanji: "風", reading: "ふうせんわり", type: "balloon" as const },
             { id: "catch" as const, kanji: "心", reading: "キャッチ", type: "catch" as const },
             { id: "balance" as const, kanji: "均", reading: "じゅうしん", type: "balance" as const },
+            { id: "command" as const, kanji: "令", reading: "しれいゲーム", type: "command" as const },
           ];
           const n = menuButtons.length;
-          const maxSpan = width - 2 * (btnRadius + 8);
-          const menuSpacing = Math.min(btnSpacing, maxSpan / (n - 1));
+          const faceX = joints.nose && joints.nose.visibility > 0.5 ? joints.nose.x : btnCenterX;
+          const faceY = joints.nose && joints.nose.visibility > 0.5 ? joints.nose.y : height * 0.3;
+          // Arc radius: comfortably outside the head, scaled to the screen.
+          const ringR = Math.min(width, height) * 0.3;
+          // Spread across the upper arc (above shoulder line) so buttons sit
+          // around the head, left→right. -160°..-20° measured from +x axis.
+          const a0 = (-160 * Math.PI) / 180;
+          const a1 = (-20 * Math.PI) / 180;
           menuButtons.forEach((b, i) => {
-            const offset = i - (n - 1) / 2; // symmetric around center
+            const t = n === 1 ? 0.5 : i / (n - 1);
+            const ang = a0 + (a1 - a0) * t;
+            const x = clampBtnX(faceX + Math.cos(ang) * ringR);
+            const y = clampBtnY(faceY + Math.sin(ang) * ringR);
             buttonsConfig.push({
-              id: b.id,
-              x: clampBtnX(btnCenterX + offset * menuSpacing),
-              kanji: b.kanji,
-              reading: b.reading,
-              isActive: false,
+              id: b.id, x, y, kanji: b.kanji, reading: b.reading, isActive: false,
               action: () => {
                 setGameModeRef.current(true);
                 setGameTypeRef.current(b.type);
@@ -655,12 +679,13 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
             });
           });
         } else {
-          // In-game: Quit (and Done for kanji) flank the screen center. When Done
-          // is present they sit at ±0.5*spacing; Quit alone stays centered.
+          // In-game: Quit (and Done for kanji) flank the screen center on the
+          // shared comfort-reach row.
           const inGameKanji = gameTypeRef.current === "kanji" && kanjiStateMirrorRef.current === "writing";
           buttonsConfig.push({
             id: "quit" as const,
             x: inGameKanji ? clampBtnX(btnCenterX + btnSpacing * 0.5) : btnCenterX,
+            y: btnY,
             kanji: "戻",
             reading: "やめる",
             isActive: false,
@@ -674,6 +699,7 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
             buttonsConfig.push({
               id: "done" as const,
               x: clampBtnX(btnCenterX - btnSpacing * 0.5),
+              y: btnY,
               kanji: "完",
               reading: "できた！",
               isActive: false,
@@ -691,7 +717,7 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
         buttonsConfig.forEach((btn) => {
           const hoverState = inBtnCooldown
             ? { hovered: false, pointer: null }
-            : checkButtonHover(btn.x, btnY, collisionRadius);
+            : checkButtonHover(btn.x, btn.y, collisionRadius);
 
           if (hoverState.hovered) {
             btnHoverProgressesRef.current[btn.id] = Math.min(100, btnHoverProgressesRef.current[btn.id] + 1.8);
@@ -713,7 +739,7 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
 
             if (btnHoverProgressesRef.current[btn.id] >= 100) {
               audioSynth.playGoalAchieved();
-              triggerFireworks(btn.x, btnY, colors);
+              triggerFireworks(btn.x, btn.y, colors);
               btn.action();
               // Reset every button's progress and start a cooldown so the
               // changed layout doesn't re-fire under the still-hovering hand.
@@ -812,12 +838,12 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
           ctx.restore();
         };
 
-        // Draw the 3 Air Buttons
+        // Draw the Air Buttons
         buttonsConfig.forEach((btn) => {
           drawAirButton(
             ctx,
             btn.x,
-            btnY,
+            btn.y,
             btnRadius,
             btn.isActive,
             btnHoverProgressesRef.current[btn.id],
@@ -1039,6 +1065,8 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
             updateAndDrawCatchGameRef.current(ctx, joints, width, height, colors, particlesRef, triggerFireworks);
           } else if (gameTypeRef.current === "balance") {
             updateAndDrawBalanceGameRef.current(ctx, joints, width, height, colors, particlesRef);
+          } else if (gameTypeRef.current === "command") {
+            updateAndDrawCommandGameRef.current(ctx, joints, width, height, colors, particlesRef, triggerFireworks);
           }
         }
 
