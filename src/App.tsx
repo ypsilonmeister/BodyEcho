@@ -9,8 +9,16 @@ import {
 import BodyCanvas from "./components/BodyCanvas";
 import ControlPanel from "./components/ControlPanel";
 import { poseTracker } from "./utils/poseTracker";
-import type { PoseComplexity } from "./utils/poseTracker";
+import type { PoseComplexity, PoseLandmarks } from "./utils/poseTracker";
 import { audioSynth } from "./utils/audioSynth";
+
+const getErrorMessage = (err: unknown, fallback: string) => {
+  return err instanceof Error && err.message ? err.message : fallback;
+};
+
+const getErrorName = (err: unknown) => {
+  return err instanceof DOMException || err instanceof Error ? err.name : "";
+};
 
 function App() {
   // App settings & tracking status states
@@ -44,7 +52,7 @@ function App() {
   const [modelError, setModelError] = useState<string | null>(null);
   
   // Detection results
-  const [landmarks, setLandmarks] = useState<any[] | null>(null);
+  const [landmarks, setLandmarks] = useState<PoseLandmarks | null>(null);
   const [calibrated, setCalibrated] = useState<boolean>(false);
   
   // UI Panels toggles
@@ -136,14 +144,15 @@ function App() {
   useEffect(() => {
     if (isCameraActive && selectedDeviceId) {
       if (prevDeviceIdRef.current === selectedDeviceId) return;
-      prevDeviceIdRef.current = selectedDeviceId;
+      const previousDeviceId = prevDeviceIdRef.current;
 
       const reloadCamera = async () => {
         setIsModelLoading(true);
         try {
           poseTracker.stopTracking();
           if (videoRef.current) {
-            await poseTracker.startCamera(videoRef.current, selectedDeviceId);
+            await poseTracker.switchCamera(videoRef.current, selectedDeviceId);
+            prevDeviceIdRef.current = selectedDeviceId;
             poseTracker.startTracking(
               videoRef.current,
               (results) => {
@@ -157,7 +166,10 @@ function App() {
           }
         } catch (err) {
           console.error(err);
-          setModelError("Failed to switch camera device.");
+          if (previousDeviceId) {
+            setSelectedDeviceId(previousDeviceId);
+          }
+          setModelError(getErrorMessage(err, "Failed to switch camera device."));
         } finally {
           setIsModelLoading(false);
         }
@@ -223,12 +235,13 @@ function App() {
           }
         );
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Initialization error:", err);
-      if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
+      const errorName = getErrorName(err);
+      if (errorName === "NotAllowedError" || errorName === "PermissionDeniedError") {
         setCameraDenied(true);
       } else {
-        setModelError(err.message || "Failed to initialize skeleton tracking.");
+        setModelError(getErrorMessage(err, "Failed to initialize skeleton tracking."));
       }
     } finally {
       setIsModelLoading(false);
@@ -371,7 +384,7 @@ function App() {
           theme={theme}
           autoCalibMode={autoCalibMode}
           onResetTriggered={handleResetTriggered}
-          videoElement={videoRef.current}
+          videoRef={videoRef}
           cameraBackground={cameraBackground}
           gameMode={gameMode}
           setGameMode={setGameMode}

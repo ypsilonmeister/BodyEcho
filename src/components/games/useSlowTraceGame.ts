@@ -37,12 +37,13 @@ export const getTracePathPoint = (
         x: xMid + scale * (2 * s - 1),
         y: yMid + wShoulder * 0.15 + (wShoulder * 0.45) * Math.sin(2 * Math.PI * s)
       };
-    case "circle":
+    case "circle": {
       const angle = Math.PI + Math.PI * s;
       return {
         x: xMid + scale * Math.cos(angle),
         y: yMid + wShoulder * 0.35 + scale * Math.sin(angle)
       };
+    }
   }
 };
 
@@ -286,11 +287,10 @@ export const useSlowTraceGame = ({
 
       const targetPt = getTracePathPoint(traceProgressRef.current, tracePathTypeRef.current, anchor);
       let isInside = false;
-      let dist = 9999;
       const rAllow = wShoulder * 0.28;
 
       if (hasWrist) {
-        dist = Math.hypot(targetWrist.x - targetPt.x, targetWrist.y - targetPt.y);
+        const dist = Math.hypot(targetWrist.x - targetPt.x, targetWrist.y - targetPt.y);
         isInside = dist <= rAllow;
       }
 

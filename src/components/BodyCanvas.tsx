@@ -15,6 +15,7 @@ import {
   updateAndDrawRipples,
 } from "../utils/canvasDraw";
 import type { Particle, Ripple, Point2D, ThemeColors, Landmark } from "../types";
+import type { PoseLandmarks } from "../utils/poseTracker";
 
 // Canvas's ctx.font does NOT resolve CSS variables like var(--font-sans);
 // an unparseable font string silently falls back to ~10px sans-serif. Use the
@@ -22,14 +23,14 @@ import type { Particle, Ripple, Point2D, ThemeColors, Landmark } from "../types"
 const CANVAS_FONT = KANJI_GUIDE_FONT;
 
 interface BodyCanvasProps {
-  landmarks: any[] | null;
+  landmarks: PoseLandmarks | null;
   calibrated: boolean;
   setCalibrated: (val: boolean) => void;
   showTrails: boolean;
   theme: string;
   autoCalibMode: "full" | "upper";
   onResetTriggered: () => void;
-  videoElement: HTMLVideoElement | null;
+  videoRef: React.RefObject<HTMLVideoElement | null>;
   cameraBackground: "calibration" | "always" | "never";
   gameMode: boolean;
   setGameMode: (val: boolean) => void;
@@ -57,7 +58,7 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
   theme,
   autoCalibMode,
   onResetTriggered,
-  videoElement,
+  videoRef,
   cameraBackground,
   gameMode,
   setGameMode,
@@ -185,15 +186,27 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
   const updateAndDrawCommandGameRef = useRef(updateAndDrawCommandGame);
   const triggerKanjiSuccessRef = useRef(triggerKanjiSuccess);
   const kanjiStateMirrorRef = useRef(kanjiState);
-  updateAndDrawPoseGameRef.current = updateAndDrawPoseGame;
-  updateAndDrawTraceGameRef.current = updateAndDrawTraceGame;
-  updateAndDrawKanjiGameRef.current = updateAndDrawKanjiGame;
-  updateAndDrawBalloonGameRef.current = updateAndDrawBalloonGame;
-  updateAndDrawCatchGameRef.current = updateAndDrawCatchGame;
-  updateAndDrawBalanceGameRef.current = updateAndDrawBalanceGame;
-  updateAndDrawCommandGameRef.current = updateAndDrawCommandGame;
-  triggerKanjiSuccessRef.current = triggerKanjiSuccess;
-  kanjiStateMirrorRef.current = kanjiState;
+  useEffect(() => {
+    updateAndDrawPoseGameRef.current = updateAndDrawPoseGame;
+    updateAndDrawTraceGameRef.current = updateAndDrawTraceGame;
+    updateAndDrawKanjiGameRef.current = updateAndDrawKanjiGame;
+    updateAndDrawBalloonGameRef.current = updateAndDrawBalloonGame;
+    updateAndDrawCatchGameRef.current = updateAndDrawCatchGame;
+    updateAndDrawBalanceGameRef.current = updateAndDrawBalanceGame;
+    updateAndDrawCommandGameRef.current = updateAndDrawCommandGame;
+    triggerKanjiSuccessRef.current = triggerKanjiSuccess;
+    kanjiStateMirrorRef.current = kanjiState;
+  }, [
+    updateAndDrawPoseGame,
+    updateAndDrawTraceGame,
+    updateAndDrawKanjiGame,
+    updateAndDrawBalloonGame,
+    updateAndDrawCatchGame,
+    updateAndDrawBalanceGame,
+    updateAndDrawCommandGame,
+    triggerKanjiSuccess,
+    kanjiState,
+  ]);
 
   const btnHoverProgressesRef = useRef<Record<string, number>>({
     pose: 0,
@@ -223,7 +236,7 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
   const showTrailsRef = useRef(showTrails);
   const themeRef = useRef(theme);
   const autoCalibModeRef = useRef(autoCalibMode);
-  const videoElementRef = useRef(videoElement);
+  const videoElementRef = useRef<HTMLVideoElement | null>(null);
   const cameraBackgroundRef = useRef(cameraBackground);
   const gameModeRef = useRef(gameMode);
   const setGameModeRef = useRef(setGameMode);
@@ -268,7 +281,7 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
     showTrailsRef.current = showTrails;
     themeRef.current = theme;
     autoCalibModeRef.current = autoCalibMode;
-    videoElementRef.current = videoElement;
+    videoElementRef.current = videoRef.current;
     cameraBackgroundRef.current = cameraBackground;
     gameModeRef.current = gameMode;
     setGameModeRef.current = setGameMode;
@@ -283,7 +296,7 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
     kanjiCharRef.current = kanjiChar;
     kanjiHandRef.current = kanjiHand;
     setKanjiCharRef.current = setKanjiChar;
-  }, [landmarks, calibrated, showTrails, theme, autoCalibMode, videoElement, cameraBackground, gameMode, setGameMode, gameType, setGameType, traceHand, tracePathType, traceSpeed, stretchHighlights, onResetTriggered, setCalibrated, kanjiChar, kanjiHand, setKanjiChar]);
+  }, [landmarks, calibrated, showTrails, theme, autoCalibMode, videoRef, cameraBackground, gameMode, setGameMode, gameType, setGameType, traceHand, tracePathType, traceSpeed, stretchHighlights, onResetTriggered, setCalibrated, kanjiChar, kanjiHand, setKanjiChar]);
 
   // Refresh cached theme colors whenever the theme changes
   useEffect(() => {
@@ -308,7 +321,9 @@ export const BodyCanvas: React.FC<BodyCanvasProps> = ({
       balloon: 0,
       catch: 0,
       balance: 0,
-      command: 0
+      command: 0,
+      quit: 0,
+      done: 0
     };
     resetPoseGame();
     resetTraceGame();

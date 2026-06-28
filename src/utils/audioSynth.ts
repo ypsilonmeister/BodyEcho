@@ -280,14 +280,18 @@ class AudioSynth {
         this.traceOscillators.forEach(osc => {
           try {
             osc.stop();
-          } catch (e) {}
+          } catch {
+            // Oscillator may already be stopped.
+          }
         });
         this.traceOscillators = [];
       }
       if (this.traceGainNode) {
         try {
           this.traceGainNode.disconnect();
-        } catch (e) {}
+        } catch {
+          // Node may already be disconnected.
+        }
         this.traceGainNode = null;
       }
     } catch (e) {
@@ -361,13 +365,17 @@ class AudioSynth {
       if (this.drawOscillator) {
         try {
           this.drawOscillator.stop();
-        } catch (e) {}
+        } catch {
+          // Node may already be disconnected.
+        }
         this.drawOscillator = null;
       }
       if (this.drawGainNode) {
         try {
           this.drawGainNode.disconnect();
-        } catch (e) {}
+        } catch {
+          // Node may already be disconnected.
+        }
         this.drawGainNode = null;
       }
     } catch (e) {
